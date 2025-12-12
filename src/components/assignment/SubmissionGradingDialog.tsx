@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,8 +6,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, XCircle, HelpCircle } from "lucide-react";
+import { CheckCircle, XCircle, HelpCircle, Save, CheckCheck } from "lucide-react";
 import type { Tables, Json } from "@/integrations/supabase/types";
 
 type Question = Tables<"questions">;
@@ -53,6 +54,33 @@ const SubmissionGradingDialog = ({
   const [feedback, setFeedback] = useState(submission.feedback || "");
   const [questionScores, setQuestionScores] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
+  const [currentSubmission, setCurrentSubmission] = useState(submission);
+
+  // Realtime subscription for grading updates
+  useEffect(() => {
+    const channel = supabase
+      .channel(`grading-${submission.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'submissions',
+          filter: `id=eq.${submission.id}`
+        },
+        (payload) => {
+          const updated = payload.new as typeof submission;
+          setCurrentSubmission(prev => ({ ...prev, ...updated }));
+          if (updated.score !== null) setScore(updated.score);
+          if (updated.feedback) setFeedback(updated.feedback);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [submission.id]);
 
   const getQuestionResult = (question: Question) => {
     const answer = submission.answers?.[question.id];
@@ -139,7 +167,36 @@ const SubmissionGradingDialog = ({
     });
   };
 
-  const handleSave = async () => {
+  const handleSaveDraft = async () => {
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from("submissions")
+        .update({
+          score,
+          feedback,
+        })
+        .eq("id", submission.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Đã lưu nháp",
+        description: "Điểm và nhận xét đã được lưu",
+      });
+    } catch (error) {
+      console.error("Error saving draft:", error);
+      toast({
+        title: "Lỗi",
+        description: "Không thể lưu điểm",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCompleteGrading = async () => {
     setLoading(true);
     try {
       const { error } = await supabase
@@ -154,15 +211,15 @@ const SubmissionGradingDialog = ({
       if (error) throw error;
 
       toast({
-        title: "Thành công",
-        description: "Đã lưu điểm",
+        title: "Hoàn thành chấm điểm",
+        description: `Đã chấm điểm: ${score}/${totalPoints}`,
       });
       onSave();
     } catch (error) {
       console.error("Error grading:", error);
       toast({
         title: "Lỗi",
-        description: "Không thể lưu điểm",
+        description: "Không thể hoàn thành chấm điểm",
         variant: "destructive",
       });
     } finally {
@@ -283,12 +340,27 @@ const SubmissionGradingDialog = ({
           </div>
         </div>
 
-        <DialogFooter>
+        <Separator className="my-4" />
+
+        <DialogFooter className="flex-col sm:flex-row gap-2">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mr-auto">
+            {currentSubmission.status === "graded" && (
+              <Badge className="bg-success">
+                <CheckCircle className="h-3 w-3 mr-1" />
+                Đã chấm điểm
+              </Badge>
+            )}
+          </div>
           <Button variant="outline" onClick={onClose}>
-            Hủy
+            Đóng
           </Button>
-          <Button onClick={handleSave} disabled={loading}>
-            {loading ? "Đang lưu..." : "Lưu điểm"}
+          <Button variant="secondary" onClick={handleSaveDraft} disabled={loading}>
+            <Save className="h-4 w-4 mr-1" />
+            Lưu nháp
+          </Button>
+          <Button onClick={handleCompleteGrading} disabled={loading}>
+            <CheckCheck className="h-4 w-4 mr-1" />
+            {loading ? "Đang lưu..." : "Hoàn thành chấm điểm"}
           </Button>
         </DialogFooter>
       </DialogContent>
