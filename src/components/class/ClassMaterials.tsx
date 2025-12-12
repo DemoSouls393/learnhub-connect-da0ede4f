@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
-import { Plus, FileText, Download, Trash2, Folder } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Plus, FileText, Download, Trash2, Folder, Upload, File, Image, Video, Music, FileArchive, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
@@ -26,20 +27,60 @@ interface ClassMaterialsProps {
   isTeacher: boolean;
 }
 
+const getFileIcon = (fileType: string | null) => {
+  if (!fileType) return FileText;
+  if (fileType.startsWith('image/')) return Image;
+  if (fileType.startsWith('video/')) return Video;
+  if (fileType.startsWith('audio/')) return Music;
+  if (fileType.includes('zip') || fileType.includes('rar') || fileType.includes('archive')) return FileArchive;
+  return File;
+};
+
+const formatFileSize = (bytes: number) => {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
 export default function ClassMaterials({ classId, isTeacher }: ClassMaterialsProps) {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [newMaterial, setNewMaterial] = useState({
     title: '',
     description: '',
-    file_url: '',
   });
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   useEffect(() => {
     fetchMaterials();
+
+    // Setup realtime subscription
+    const channel = supabase
+      .channel('materials-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'materials',
+          filter: `class_id=eq.${classId}`
+        },
+        () => {
+          fetchMaterials();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [classId]);
 
   const fetchMaterials = async () => {
@@ -51,12 +92,29 @@ export default function ClassMaterials({ classId, isTeacher }: ClassMaterialsPro
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-
       setMaterials(data || []);
     } catch (error) {
       console.error('Error fetching materials:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 50 * 1024 * 1024) {
+        toast({
+          title: 'Lỗi',
+          description: 'File quá lớn. Kích thước tối đa là 50MB',
+          variant: 'destructive',
+        });
+        return;
+      }
+      setSelectedFile(file);
+      if (!newMaterial.title) {
+        setNewMaterial(prev => ({ ...prev, title: file.name.split('.')[0] }));
+      }
     }
   };
 
@@ -71,19 +129,51 @@ export default function ClassMaterials({ classId, isTeacher }: ClassMaterialsPro
     }
 
     setIsCreating(true);
+    setUploadProgress(0);
+
     try {
+      let fileUrl = null;
+      let fileType = null;
+
+      if (selectedFile) {
+        // Upload file to storage
+        const fileExt = selectedFile.name.split('.').pop();
+        const fileName = `${classId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('materials')
+          .upload(fileName, selectedFile, {
+            cacheControl: '3600',
+            upsert: false,
+          });
+
+        if (uploadError) throw uploadError;
+
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from('materials')
+          .getPublicUrl(fileName);
+
+        fileUrl = urlData.publicUrl;
+        fileType = selectedFile.type;
+        setUploadProgress(100);
+      }
+
+      // Insert material record
       const { error } = await supabase
         .from('materials')
         .insert({
           class_id: classId,
           title: newMaterial.title,
           description: newMaterial.description || null,
-          file_url: newMaterial.file_url || null,
+          file_url: fileUrl,
+          file_type: fileType,
         });
 
       if (error) throw error;
 
-      setNewMaterial({ title: '', description: '', file_url: '' });
+      setNewMaterial({ title: '', description: '' });
+      setSelectedFile(null);
       setIsCreateOpen(false);
       fetchMaterials();
       toast({
@@ -91,6 +181,7 @@ export default function ClassMaterials({ classId, isTeacher }: ClassMaterialsPro
         description: 'Tài liệu đã được thêm',
       });
     } catch (error: any) {
+      console.error('Upload error:', error);
       toast({
         title: 'Lỗi',
         description: error.message || 'Không thể thêm tài liệu',
@@ -98,21 +189,31 @@ export default function ClassMaterials({ classId, isTeacher }: ClassMaterialsPro
       });
     } finally {
       setIsCreating(false);
+      setUploadProgress(0);
     }
   };
 
-  const deleteMaterial = async (id: string, title: string) => {
-    if (!confirm(`Bạn có chắc muốn xóa tài liệu "${title}"?`)) return;
+  const deleteMaterial = async (material: Material) => {
+    if (!confirm(`Bạn có chắc muốn xóa tài liệu "${material.title}"?`)) return;
 
     try {
+      // Delete file from storage if exists
+      if (material.file_url) {
+        const path = material.file_url.split('/materials/')[1];
+        if (path) {
+          await supabase.storage.from('materials').remove([path]);
+        }
+      }
+
+      // Delete material record
       const { error } = await supabase
         .from('materials')
         .delete()
-        .eq('id', id);
+        .eq('id', material.id);
 
       if (error) throw error;
 
-      setMaterials(materials.filter(m => m.id !== id));
+      setMaterials(materials.filter(m => m.id !== material.id));
       toast({
         title: 'Thành công',
         description: 'Đã xóa tài liệu',
@@ -157,14 +258,53 @@ export default function ClassMaterials({ classId, isTeacher }: ClassMaterialsPro
               Thêm tài liệu
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Thêm tài liệu mới</DialogTitle>
               <DialogDescription>
-                Thêm tài liệu học tập cho lớp.
+                Tải lên tài liệu học tập cho lớp (tối đa 50MB).
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
+              {/* File Upload Area */}
+              <div className="space-y-2">
+                <Label>Tệp đính kèm</Label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  accept="*/*"
+                />
+                {selectedFile ? (
+                  <div className="flex items-center gap-3 p-3 border rounded-lg bg-muted/50">
+                    <File className="h-8 w-8 text-primary" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{selectedFile.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {formatFileSize(selectedFile.size)}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setSelectedFile(null)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-primary hover:bg-muted/50 transition-colors"
+                  >
+                    <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+                    <p className="font-medium">Nhấp để chọn tệp</p>
+                    <p className="text-sm text-muted-foreground">hoặc kéo thả vào đây</p>
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="title">Tiêu đề *</Label>
                 <Input
@@ -183,21 +323,21 @@ export default function ClassMaterials({ classId, isTeacher }: ClassMaterialsPro
                   onChange={(e) => setNewMaterial({ ...newMaterial, description: e.target.value })}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="file_url">Link tài liệu</Label>
-                <Input
-                  id="file_url"
-                  type="url"
-                  placeholder="https://drive.google.com/..."
-                  value={newMaterial.file_url}
-                  onChange={(e) => setNewMaterial({ ...newMaterial, file_url: e.target.value })}
-                />
-              </div>
+
+              {uploadProgress > 0 && uploadProgress < 100 && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>Đang tải lên...</span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  <Progress value={uploadProgress} />
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Hủy</Button>
               <Button onClick={handleCreate} disabled={isCreating}>
-                {isCreating ? 'Đang thêm...' : 'Thêm tài liệu'}
+                {isCreating ? 'Đang tải lên...' : 'Thêm tài liệu'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -217,47 +357,50 @@ export default function ClassMaterials({ classId, isTeacher }: ClassMaterialsPro
         </Card>
       ) : (
         <div className="space-y-3">
-          {materials.map((material) => (
-            <Card key={material.id} className="card-hover">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                      <FileText className="text-primary" size={20} />
+          {materials.map((material) => {
+            const FileIcon = getFileIcon(material.file_type);
+            return (
+              <Card key={material.id} className="card-hover">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <FileIcon className="text-primary" size={20} />
+                      </div>
+                      <div>
+                        <h4 className="font-medium">{material.title}</h4>
+                        {material.description && (
+                          <p className="text-sm text-muted-foreground line-clamp-1">{material.description}</p>
+                        )}
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {format(new Date(material.created_at), 'dd/MM/yyyy HH:mm', { locale: vi })}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="font-medium">{material.title}</h4>
-                      {material.description && (
-                        <p className="text-sm text-muted-foreground">{material.description}</p>
+                    <div className="flex items-center gap-2">
+                      {material.file_url && (
+                        <Button variant="ghost" size="icon" asChild>
+                          <a href={material.file_url} target="_blank" rel="noopener noreferrer" download>
+                            <Download size={18} />
+                          </a>
+                        </Button>
                       )}
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {format(new Date(material.created_at), 'dd/MM/yyyy', { locale: vi })}
-                      </p>
+                      {isTeacher && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => deleteMaterial(material)}
+                        >
+                          <Trash2 size={18} />
+                        </Button>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {material.file_url && (
-                      <Button variant="ghost" size="icon" asChild>
-                        <a href={material.file_url} target="_blank" rel="noopener noreferrer">
-                          <Download size={18} />
-                        </a>
-                      </Button>
-                    )}
-                    {isTeacher && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => deleteMaterial(material.id, material.title)}
-                      >
-                        <Trash2 size={18} />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

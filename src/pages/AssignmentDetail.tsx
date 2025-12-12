@@ -350,6 +350,7 @@ const AssignmentDetail = () => {
                   <SubmissionList
                     submissions={submissions}
                     totalPoints={assignment.total_points || 100}
+                    assignmentId={assignmentId!}
                     onUpdate={fetchAssignmentData}
                   />
                 </CardContent>

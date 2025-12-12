@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
-import { Eye, CheckCircle, Clock, AlertCircle } from "lucide-react";
+import { Eye, CheckCircle, Clock, AlertCircle, FileText } from "lucide-react";
+import SubmissionGradingDialog from "./SubmissionGradingDialog";
+import type { Tables } from "@/integrations/supabase/types";
+
+type Question = Tables<"questions">;
 
 interface Submission {
   id: string;
@@ -28,73 +29,77 @@ interface Submission {
 interface SubmissionListProps {
   submissions: Submission[];
   totalPoints: number;
+  assignmentId: string;
   onUpdate: () => void;
 }
 
-const SubmissionList = ({ submissions, totalPoints, onUpdate }: SubmissionListProps) => {
+const SubmissionList = ({ submissions, totalPoints, assignmentId, onUpdate }: SubmissionListProps) => {
   const { toast } = useToast();
   const [gradingSubmission, setGradingSubmission] = useState<Submission | null>(null);
-  const [score, setScore] = useState<number>(0);
-  const [feedback, setFeedback] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [questions, setQuestions] = useState<Question[]>([]);
 
-  const openGrading = (submission: Submission) => {
-    setGradingSubmission(submission);
-    setScore(submission.score || 0);
-    setFeedback(submission.feedback || "");
-  };
+  useEffect(() => {
+    fetchQuestions();
 
-  const handleGrade = async () => {
-    if (!gradingSubmission) return;
+    // Setup realtime subscription
+    const channel = supabase
+      .channel('submissions-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'submissions',
+          filter: `assignment_id=eq.${assignmentId}`
+        },
+        () => {
+          onUpdate();
+        }
+      )
+      .subscribe();
 
-    setLoading(true);
-    try {
-      const { error } = await supabase
-        .from("submissions")
-        .update({
-          score,
-          feedback,
-          status: "graded",
-        })
-        .eq("id", gradingSubmission.id);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [assignmentId]);
 
-      if (error) throw error;
-
-      toast({
-        title: "Thành công",
-        description: "Đã chấm điểm bài nộp",
-      });
-      setGradingSubmission(null);
-      onUpdate();
-    } catch (error) {
-      console.error("Error grading:", error);
-      toast({
-        title: "Lỗi",
-        description: "Không thể chấm điểm",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
+  const fetchQuestions = async () => {
+    const { data } = await supabase
+      .from("questions")
+      .select("*")
+      .eq("assignment_id", assignmentId)
+      .order("order_index");
+    
+    setQuestions(data || []);
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "submitted":
-        return <Badge variant="default"><CheckCircle className="h-3 w-3 mr-1" />Đã nộp</Badge>;
+        return <Badge variant="default"><Clock className="h-3 w-3 mr-1" />Chờ chấm</Badge>;
       case "graded":
         return <Badge className="bg-success"><CheckCircle className="h-3 w-3 mr-1" />Đã chấm</Badge>;
       case "in_progress":
-        return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />Đang làm</Badge>;
+        return <Badge variant="secondary"><FileText className="h-3 w-3 mr-1" />Đang làm</Badge>;
       default:
         return <Badge variant="outline"><AlertCircle className="h-3 w-3 mr-1" />{status}</Badge>;
     }
   };
 
+  const getScoreColor = (score: number | null) => {
+    if (score === null) return "";
+    const percentage = (score / totalPoints) * 100;
+    if (percentage >= 80) return "text-success";
+    if (percentage >= 50) return "text-warning";
+    return "text-destructive";
+  };
+
   if (submissions.length === 0) {
     return (
       <div className="text-center py-12 text-muted-foreground">
-        <p>Chưa có bài nộp nào</p>
+        <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+        <p className="font-medium">Chưa có bài nộp nào</p>
+        <p className="text-sm">Học sinh sẽ xuất hiện ở đây khi họ bắt đầu làm bài</p>
       </div>
     );
   }
@@ -112,7 +117,7 @@ const SubmissionList = ({ submissions, totalPoints, onUpdate }: SubmissionListPr
       {submissions.map((submission) => (
         <div
           key={submission.id}
-          className="grid grid-cols-5 gap-4 p-3 border rounded-lg items-center"
+          className="grid grid-cols-5 gap-4 p-3 border rounded-lg items-center hover:bg-muted/50 transition-colors"
         >
           <div>
             <p className="font-medium">{submission.profiles?.full_name || "N/A"}</p>
@@ -124,16 +129,16 @@ const SubmissionList = ({ submissions, totalPoints, onUpdate }: SubmissionListPr
           <div className="text-sm">
             {submission.submitted_at
               ? format(new Date(submission.submitted_at), "dd/MM/yyyy HH:mm", { locale: vi })
-              : "Chưa nộp"}
+              : <span className="text-muted-foreground">Chưa nộp</span>}
           </div>
 
           <div className="font-medium">
             {submission.score !== null ? (
-              <span className={submission.score >= totalPoints * 0.5 ? "text-success" : "text-destructive"}>
+              <span className={getScoreColor(submission.score)}>
                 {submission.score}/{totalPoints}
               </span>
             ) : (
-              <span className="text-muted-foreground">Chưa chấm</span>
+              <span className="text-muted-foreground">—</span>
             )}
           </div>
 
@@ -141,63 +146,27 @@ const SubmissionList = ({ submissions, totalPoints, onUpdate }: SubmissionListPr
             <Button
               variant="outline"
               size="sm"
-              onClick={() => openGrading(submission)}
+              onClick={() => setGradingSubmission(submission)}
               disabled={submission.status === "in_progress"}
             >
               <Eye className="h-4 w-4 mr-1" />
-              {submission.score !== null ? "Xem/Sửa điểm" : "Chấm điểm"}
+              {submission.status === "graded" ? "Xem lại" : "Chấm điểm"}
             </Button>
           </div>
         </div>
       ))}
 
       {gradingSubmission && (
-        <Dialog open onOpenChange={() => setGradingSubmission(null)}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Chấm điểm bài nộp</DialogTitle>
-            </DialogHeader>
-
-            <div className="space-y-4 py-4">
-              <div>
-                <p className="text-sm font-medium mb-1">Học sinh</p>
-                <p className="text-muted-foreground">
-                  {gradingSubmission.profiles?.full_name}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Điểm (tối đa {totalPoints})</label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={totalPoints}
-                  value={score}
-                  onChange={(e) => setScore(Number(e.target.value))}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Nhận xét</label>
-                <Textarea
-                  value={feedback}
-                  onChange={(e) => setFeedback(e.target.value)}
-                  placeholder="Nhập nhận xét cho học sinh..."
-                  rows={4}
-                />
-              </div>
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setGradingSubmission(null)}>
-                Hủy
-              </Button>
-              <Button onClick={handleGrade} disabled={loading}>
-                {loading ? "Đang lưu..." : "Lưu điểm"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <SubmissionGradingDialog
+          submission={gradingSubmission}
+          questions={questions}
+          totalPoints={totalPoints}
+          onClose={() => setGradingSubmission(null)}
+          onSave={() => {
+            setGradingSubmission(null);
+            onUpdate();
+          }}
+        />
       )}
     </div>
   );
