@@ -13,10 +13,12 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { Clock, AlertTriangle, Send, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Tables, Json } from "@/integrations/supabase/types";
+import { notifyTeacherSubmission } from "@/lib/notifications";
 
-type Assignment = Tables<"assignments"> & { max_attempts?: number };
+type Assignment = Tables<"assignments"> & { max_attempts?: number; class_id: string };
 type Question = Tables<"questions">;
 type Submission = Tables<"submissions"> & { attempt_number?: number };
+type ClassInfo = { teacher_id: string; name: string };
 
 interface Option {
   id: string;
@@ -31,6 +33,7 @@ const TakeQuiz = () => {
   const { toast } = useToast();
 
   const [assignment, setAssignment] = useState<Assignment | null>(null);
+  const [classInfo, setClassInfo] = useState<ClassInfo | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [allSubmissions, setAllSubmissions] = useState<Submission[]>([]);
@@ -96,6 +99,15 @@ const TakeQuiz = () => {
 
       if (assignmentError) throw assignmentError;
       setAssignment(assignmentData);
+
+      // Fetch class info for teacher notification
+      const { data: classData } = await supabase
+        .from("classes")
+        .select("teacher_id, name")
+        .eq("id", assignmentData.class_id)
+        .single();
+      
+      if (classData) setClassInfo(classData);
 
       // Fetch questions
       let questionsQuery = supabase
@@ -290,6 +302,17 @@ const TakeQuiz = () => {
         .eq("id", submission.id);
 
       if (error) throw error;
+
+      // Send notification to teacher
+      if (classInfo && profile) {
+        await notifyTeacherSubmission(
+          classInfo.teacher_id,
+          profile.full_name,
+          assignment.title,
+          classId!,
+          assignmentId!
+        );
+      }
 
       if (hasEssayQuestions) {
         toast({
