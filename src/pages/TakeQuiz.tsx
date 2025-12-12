@@ -221,13 +221,18 @@ const TakeQuiz = () => {
 
     setSubmitting(true);
     try {
+      // Check if there are essay questions (need manual grading)
+      const hasEssayQuestions = questions.some(q => q.question_type === "essay");
+      
       // Calculate score for auto-graded questions
       let totalScore = 0;
+      let canAutoGrade = true;
+
       questions.forEach(q => {
         const answer = answers[q.id];
         if (!answer) return;
 
-      if (q.question_type === "multiple_choice") {
+        if (q.question_type === "multiple_choice") {
           const opts = q.options as unknown as Option[];
           const correctOption = opts.find(o => o.isCorrect);
           if (correctOption && answer === correctOption.id) {
@@ -241,19 +246,25 @@ const TakeQuiz = () => {
           if (answer.toLowerCase().trim() === q.correct_answer?.toLowerCase().trim()) {
             totalScore += q.points || 1;
           }
+        } else if (q.question_type === "essay") {
+          // Essay questions need manual grading
+          canAutoGrade = false;
         }
-        // Essay questions need manual grading
       });
 
-      const hasEssay = questions.some(q => q.question_type === "essay");
+      // Determine submission status and score
+      // If has essay -> status = "submitted", score = null (wait for manual grading)
+      // If all auto-gradable -> status = "graded", score = totalScore (immediate result)
+      const finalStatus = hasEssayQuestions ? "submitted" : "graded";
+      const finalScore = hasEssayQuestions ? null : totalScore;
 
       const { error } = await supabase
         .from("submissions")
         .update({
           answers: answers as unknown as Json,
-          status: "submitted",
+          status: finalStatus,
           submitted_at: new Date().toISOString(),
-          score: hasEssay ? null : totalScore,
+          score: finalScore,
           anti_cheat_log: {
             tab_switches: tabSwitchCount,
             auto_submitted: autoSubmit,
@@ -263,10 +274,20 @@ const TakeQuiz = () => {
 
       if (error) throw error;
 
-      toast({
-        title: "Thành công",
-        description: autoSubmit ? "Hết giờ! Bài đã được nộp tự động" : "Đã nộp bài thành công",
-      });
+      if (hasEssayQuestions) {
+        toast({
+          title: "Đã nộp bài",
+          description: "Bài làm đang chờ giáo viên chấm điểm. Điểm sẽ được công bố sau.",
+        });
+      } else {
+        toast({
+          title: "Thành công",
+          description: autoSubmit 
+            ? `Hết giờ! Bài đã được nộp tự động. Điểm: ${totalScore}/${assignment.total_points}`
+            : `Đã nộp bài. Điểm: ${totalScore}/${assignment.total_points}`,
+        });
+      }
+      
       navigate(`/class/${classId}/assignment/${assignmentId}`);
     } catch (error) {
       console.error("Error submitting:", error);
