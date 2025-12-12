@@ -57,6 +57,7 @@ export default function ClassAssignments({ classId, isTeacher }: ClassAssignment
     due_date: '',
     total_points: 100,
     time_limit_minutes: 30,
+    max_attempts: 1,
     anti_cheat_enabled: true,
     shuffle_questions: true,
     shuffle_answers: true,
@@ -131,6 +132,7 @@ export default function ClassAssignments({ classId, isTeacher }: ClassAssignment
           due_date: newAssignment.due_date || null,
           total_points: newAssignment.total_points,
           time_limit_minutes: newAssignment.time_limit_minutes || null,
+          max_attempts: newAssignment.max_attempts || 1,
           anti_cheat_enabled: newAssignment.anti_cheat_enabled,
           shuffle_questions: newAssignment.shuffle_questions,
           shuffle_answers: newAssignment.shuffle_answers,
@@ -148,6 +150,7 @@ export default function ClassAssignments({ classId, isTeacher }: ClassAssignment
         due_date: '',
         total_points: 100,
         time_limit_minutes: 30,
+        max_attempts: 1,
         anti_cheat_enabled: true,
         shuffle_questions: true,
         shuffle_answers: true,
@@ -378,14 +381,26 @@ export default function ClassAssignments({ classId, isTeacher }: ClassAssignment
                   />
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="points">Điểm tối đa</Label>
-                <Input
-                  id="points"
-                  type="number"
-                  value={newAssignment.total_points}
-                  onChange={(e) => setNewAssignment({ ...newAssignment, total_points: parseInt(e.target.value) || 100 })}
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="points">Điểm tối đa</Label>
+                  <Input
+                    id="points"
+                    type="number"
+                    value={newAssignment.total_points}
+                    onChange={(e) => setNewAssignment({ ...newAssignment, total_points: parseInt(e.target.value) || 100 })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="max_attempts">Số lần làm bài</Label>
+                  <Input
+                    id="max_attempts"
+                    type="number"
+                    min={1}
+                    value={newAssignment.max_attempts}
+                    onChange={(e) => setNewAssignment({ ...newAssignment, max_attempts: parseInt(e.target.value) || 1 })}
+                  />
+                </div>
               </div>
 
               <div className="space-y-4 pt-4 border-t">
