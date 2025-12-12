@@ -23,6 +23,7 @@ import ClassStream from '@/components/class/ClassStream';
 import ClassMembers from '@/components/class/ClassMembers';
 import ClassAssignments from '@/components/class/ClassAssignments';
 import ClassMaterials from '@/components/class/ClassMaterials';
+import LiveSessionManager from '@/components/class/LiveSessionManager';
 
 interface ClassData {
   id: string;
@@ -153,6 +154,10 @@ export default function ClassDetail() {
                 <Bell size={16} />
                 Bảng tin
               </TabsTrigger>
+              <TabsTrigger value="live" className="gap-2">
+                <Video size={16} />
+                Phiên học
+              </TabsTrigger>
               <TabsTrigger value="assignments" className="gap-2">
                 <ClipboardCheck size={16} />
                 Bài tập
@@ -172,6 +177,13 @@ export default function ClassDetail() {
                 classId={classData.id} 
                 isTeacher={isTeacher} 
                 profileId={profile.id}
+              />
+            </TabsContent>
+
+            <TabsContent value="live">
+              <LiveSessionManager
+                classId={classData.id}
+                isTeacher={isTeacher}
               />
             </TabsContent>
 

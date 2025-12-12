@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
-import { Plus, BookOpen, ClipboardCheck, Calendar, CheckCircle, Clock } from 'lucide-react';
+import { Plus, BookOpen, ClipboardCheck, Calendar, CheckCircle, Clock, Play, Video } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { format } from 'date-fns';
+import { vi } from 'date-fns/locale';
 
 interface Profile {
   id: string;
@@ -27,12 +30,31 @@ interface ClassWithTeacher {
   } | null;
 }
 
+interface UpcomingAssignment {
+  id: string;
+  title: string;
+  due_date: string;
+  class_id: string;
+  class_name: string;
+  type: string;
+}
+
+interface ActiveSession {
+  id: string;
+  title: string;
+  class_id: string;
+  class_name: string;
+}
+
 interface StudentDashboardProps {
   profile: Profile;
 }
 
 export default function StudentDashboard({ profile }: StudentDashboardProps) {
+  const navigate = useNavigate();
   const [classes, setClasses] = useState<ClassWithTeacher[]>([]);
+  const [upcomingAssignments, setUpcomingAssignments] = useState<UpcomingAssignment[]>([]);
+  const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [isJoinOpen, setIsJoinOpen] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
@@ -40,11 +62,12 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
   const { toast } = useToast();
 
   useEffect(() => {
-    fetchClasses();
+    fetchData();
   }, [profile.id]);
 
-  const fetchClasses = async () => {
+  const fetchData = async () => {
     try {
+      // Fetch class memberships
       const { data: memberships, error: membershipError } = await supabase
         .from('class_members')
         .select('class_id')
@@ -60,21 +83,15 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
 
       const classIds = memberships.map(m => m.class_id);
       
+      // Fetch classes
       const { data: classData, error: classError } = await supabase
         .from('classes')
-        .select(`
-          id,
-          name,
-          description,
-          subject,
-          class_code,
-          teacher_id
-        `)
+        .select('id, name, description, subject, class_code, teacher_id')
         .in('id', classIds);
 
       if (classError) throw classError;
 
-      // Fetch teacher info separately
+      // Fetch teacher info
       const teacherIds = [...new Set(classData?.map(c => c.teacher_id) || [])];
       const { data: teacherData } = await supabase
         .from('profiles')
@@ -82,18 +99,51 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
         .in('id', teacherIds);
 
       const teacherMap = new Map(teacherData?.map(t => [t.id, t]) || []);
-
       const classesWithTeachers = classData?.map(c => ({
         ...c,
         teacher: teacherMap.get(c.teacher_id) || null
       })) || [];
 
       setClasses(classesWithTeachers);
+
+      // Fetch upcoming assignments
+      const { data: assignmentsData } = await supabase
+        .from('assignments')
+        .select('id, title, due_date, class_id, type')
+        .in('class_id', classIds)
+        .eq('is_published', true)
+        .gte('due_date', new Date().toISOString())
+        .order('due_date', { ascending: true })
+        .limit(5);
+
+      if (assignmentsData) {
+        const classNameMap = new Map(classData?.map(c => [c.id, c.name]) || []);
+        setUpcomingAssignments(assignmentsData.map(a => ({
+          ...a,
+          class_name: classNameMap.get(a.class_id) || '',
+          due_date: a.due_date || '',
+        })));
+      }
+
+      // Fetch active live sessions
+      const { data: sessionsData } = await supabase
+        .from('live_sessions')
+        .select('id, title, class_id')
+        .in('class_id', classIds)
+        .eq('status', 'live');
+
+      if (sessionsData) {
+        const classNameMap = new Map(classData?.map(c => [c.id, c.name]) || []);
+        setActiveSessions(sessionsData.map(s => ({
+          ...s,
+          class_name: classNameMap.get(s.class_id) || '',
+        })));
+      }
     } catch (error) {
-      console.error('Error fetching classes:', error);
+      console.error('Error fetching data:', error);
       toast({
         title: 'Lỗi',
-        description: 'Không thể tải danh sách lớp học',
+        description: 'Không thể tải dữ liệu',
         variant: 'destructive',
       });
     } finally {
@@ -165,7 +215,7 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
 
       setClassCode('');
       setIsJoinOpen(false);
-      fetchClasses();
+      fetchData();
     } catch (error: any) {
       console.error('Error joining class:', error);
       toast({
@@ -180,9 +230,8 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
 
   const stats = [
     { label: 'Lớp học', value: classes.length, icon: BookOpen, color: 'bg-primary/10 text-primary' },
-    { label: 'Bài tập', value: 0, icon: ClipboardCheck, color: 'bg-warning/10 text-warning' },
-    { label: 'Hoàn thành', value: 0, icon: CheckCircle, color: 'bg-success/10 text-success' },
-    { label: 'Đang chờ', value: 0, icon: Clock, color: 'bg-accent/10 text-accent' },
+    { label: 'Bài tập sắp đến hạn', value: upcomingAssignments.length, icon: ClipboardCheck, color: 'bg-warning/10 text-warning' },
+    { label: 'Phiên học đang diễn ra', value: activeSessions.length, icon: Video, color: 'bg-success/10 text-success' },
   ];
 
   return (
@@ -197,8 +246,43 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
         </p>
       </div>
 
+      {/* Active Live Sessions Alert */}
+      {activeSessions.length > 0 && (
+        <Card className="mb-8 border-red-500/50 bg-red-500/5 animate-pulse">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-red-600">
+              <Video className="h-5 w-5" />
+              Phiên học đang diễn ra
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {activeSessions.map((session) => (
+                <div
+                  key={session.id}
+                  className="flex items-center justify-between p-3 bg-card border rounded-lg"
+                >
+                  <div>
+                    <p className="font-medium">{session.title}</p>
+                    <p className="text-sm text-muted-foreground">{session.class_name}</p>
+                  </div>
+                  <Button
+                    variant="hero"
+                    size="sm"
+                    onClick={() => navigate(`/class/${session.class_id}/session/${session.id}`)}
+                  >
+                    <Play className="h-4 w-4 mr-1" />
+                    Tham gia
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         {stats.map((stat, index) => (
           <Card key={index} className="animate-fade-in" style={{ animationDelay: `${index * 50}ms` }}>
             <CardContent className="p-4">
@@ -292,14 +376,13 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
             {classes.map((cls, index) => (
               <Card 
                 key={cls.id} 
-                className="card-hover animate-fade-in"
+                className="card-hover animate-fade-in cursor-pointer"
                 style={{ animationDelay: `${index * 50}ms` }}
+                onClick={() => navigate(`/class/${cls.id}`)}
               >
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">
-                    <Link to={`/class/${cls.id}`} className="hover:text-primary transition-colors">
-                      {cls.name}
-                    </Link>
+                  <CardTitle className="text-lg hover:text-primary transition-colors">
+                    {cls.name}
                   </CardTitle>
                   {cls.subject && (
                     <CardDescription>{cls.subject}</CardDescription>
@@ -316,15 +399,53 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
         )}
       </div>
 
-      {/* Upcoming Deadlines */}
+      {/* Upcoming Assignments */}
       <div>
-        <h2 className="text-xl font-display font-semibold mb-4">Sắp đến hạn</h2>
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            <Calendar className="mx-auto mb-2" size={32} />
-            <p>Không có bài tập nào sắp đến hạn</p>
-          </CardContent>
-        </Card>
+        <h2 className="text-xl font-display font-semibold mb-4">Bài tập sắp đến hạn</h2>
+        {upcomingAssignments.length === 0 ? (
+          <Card>
+            <CardContent className="py-8 text-center text-muted-foreground">
+              <Calendar className="mx-auto mb-2" size={32} />
+              <p>Không có bài tập nào sắp đến hạn</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {upcomingAssignments.map((assignment) => (
+              <Card 
+                key={assignment.id} 
+                className="card-hover cursor-pointer"
+                onClick={() => navigate(`/class/${assignment.class_id}/assignment/${assignment.id}/take`)}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-medium">{assignment.title}</h4>
+                        <Badge variant="secondary">
+                          {assignment.type === 'quiz' ? 'Trắc nghiệm' : assignment.type === 'exam' ? 'Bài kiểm tra' : 'Bài tập'}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{assignment.class_name}</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="flex items-center gap-1 text-warning">
+                        <Clock size={14} />
+                        <span className="text-sm font-medium">
+                          {format(new Date(assignment.due_date), 'dd/MM HH:mm', { locale: vi })}
+                        </span>
+                      </div>
+                      <Button size="sm" variant="hero" className="mt-2">
+                        <Play size={14} className="mr-1" />
+                        Làm bài
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
