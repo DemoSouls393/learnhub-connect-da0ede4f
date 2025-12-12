@@ -7,13 +7,11 @@ import {
   FileText, 
   Video, 
   Settings,
-  Plus,
   Copy,
   Bell,
-  Calendar
+  Image
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/lib/auth';
@@ -24,6 +22,7 @@ import ClassMembers from '@/components/class/ClassMembers';
 import ClassAssignments from '@/components/class/ClassAssignments';
 import ClassMaterials from '@/components/class/ClassMaterials';
 import LiveSessionManager from '@/components/class/LiveSessionManager';
+import ClassSettings from '@/components/class/ClassSettings';
 
 interface ClassData {
   id: string;
@@ -33,6 +32,7 @@ interface ClassData {
   class_code: string;
   teacher_id: string;
   is_active: boolean;
+  cover_image: string | null;
 }
 
 export default function ClassDetail() {
@@ -43,6 +43,7 @@ export default function ClassDetail() {
   const [classData, setClassData] = useState<ClassData | null>(null);
   const [loading, setLoading] = useState(true);
   const [isTeacher, setIsTeacher] = useState(false);
+  const [activeTab, setActiveTab] = useState('stream');
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -90,6 +91,12 @@ export default function ClassDetail() {
     }
   };
 
+  const handleClassUpdate = (updates: Partial<ClassData>) => {
+    if (classData) {
+      setClassData({ ...classData, ...updates });
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -101,6 +108,8 @@ export default function ClassDetail() {
   if (!classData || !profile) {
     return null;
   }
+
+  const defaultCover = 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&h=200&fit=crop';
 
   return (
     <div className="min-h-screen bg-background">
@@ -116,39 +125,44 @@ export default function ClassDetail() {
               </Link>
             </Button>
 
-            <div className="bg-gradient-hero rounded-2xl p-6 md:p-8 text-primary-foreground">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div>
-                  <h1 className="text-2xl md:text-3xl font-display font-bold mb-2">
-                    {classData.name}
-                  </h1>
-                  {classData.subject && (
-                    <p className="text-primary-foreground/80">{classData.subject}</p>
-                  )}
-                  {classData.description && (
-                    <p className="text-primary-foreground/70 text-sm mt-2">{classData.description}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
-                  <div 
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-foreground/10 backdrop-blur-sm cursor-pointer hover:bg-primary-foreground/20 transition-colors"
-                    onClick={copyClassCode}
-                  >
-                    <span className="font-mono font-bold">{classData.class_code}</span>
-                    <Copy size={16} />
+            <div 
+              className="relative rounded-2xl overflow-hidden"
+              style={{
+                backgroundImage: `url(${classData.cover_image || defaultCover})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }}
+            >
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
+              <div className="relative p-6 md:p-8 text-white">
+                <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+                  <div>
+                    <h1 className="text-2xl md:text-3xl font-display font-bold mb-2">
+                      {classData.name}
+                    </h1>
+                    {classData.subject && (
+                      <p className="text-white/80">{classData.subject}</p>
+                    )}
+                    {classData.description && (
+                      <p className="text-white/70 text-sm mt-2 max-w-2xl">{classData.description}</p>
+                    )}
                   </div>
-                  {isTeacher && (
-                    <Button variant="secondary" size="icon">
-                      <Settings size={18} />
-                    </Button>
-                  )}
+                  <div className="flex items-center gap-3">
+                    <div 
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 backdrop-blur-sm cursor-pointer hover:bg-white/20 transition-colors"
+                      onClick={copyClassCode}
+                    >
+                      <span className="font-mono font-bold">{classData.class_code}</span>
+                      <Copy size={16} />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Tabs */}
-          <Tabs defaultValue="stream" className="space-y-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
             <TabsList className="w-full justify-start overflow-x-auto">
               <TabsTrigger value="stream" className="gap-2">
                 <Bell size={16} />
@@ -170,6 +184,12 @@ export default function ClassDetail() {
                 <Users size={16} />
                 Thành viên
               </TabsTrigger>
+              {isTeacher && (
+                <TabsTrigger value="settings" className="gap-2">
+                  <Settings size={16} />
+                  Cài đặt
+                </TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value="stream">
@@ -206,8 +226,18 @@ export default function ClassDetail() {
                 classId={classData.id} 
                 isTeacher={isTeacher}
                 teacherId={classData.teacher_id}
+                classCode={classData.class_code}
               />
             </TabsContent>
+
+            {isTeacher && (
+              <TabsContent value="settings">
+                <ClassSettings 
+                  classData={classData}
+                  onUpdate={handleClassUpdate}
+                />
+              </TabsContent>
+            )}
           </Tabs>
         </div>
       </main>

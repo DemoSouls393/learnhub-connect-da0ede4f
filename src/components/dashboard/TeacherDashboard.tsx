@@ -69,6 +69,26 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
       })) || [];
 
       setClasses(classesWithCount);
+
+      // Fetch assignments count
+      if (classesWithCount.length > 0) {
+        const classIds = classesWithCount.map(c => c.id);
+        const { data: assignmentsData } = await supabase
+          .from('assignments')
+          .select('id')
+          .in('class_id', classIds);
+
+        const { data: sessionsData } = await supabase
+          .from('live_sessions')
+          .select('id')
+          .in('class_id', classIds);
+
+        setStats(prev => ({
+          ...prev,
+          assignments: assignmentsData?.length || 0,
+          sessions: sessionsData?.length || 0,
+        }));
+      }
     } catch (error) {
       console.error('Error fetching classes:', error);
       toast({
@@ -80,6 +100,11 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
       setLoading(false);
     }
   };
+
+  const [stats, setStats] = useState({
+    assignments: 0,
+    sessions: 0,
+  });
 
   const generateClassCode = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -146,11 +171,11 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
     });
   };
 
-  const stats = [
+  const statsData = [
     { label: 'Lớp học', value: classes.length, icon: BookOpen, color: 'bg-primary/10 text-primary' },
     { label: 'Học sinh', value: classes.reduce((acc, c) => acc + (c.student_count || 0), 0), icon: Users, color: 'bg-accent/10 text-accent' },
-    { label: 'Bài tập', value: 0, icon: ClipboardCheck, color: 'bg-warning/10 text-warning' },
-    { label: 'Buổi học', value: 0, icon: Video, color: 'bg-success/10 text-success' },
+    { label: 'Bài tập', value: stats.assignments, icon: ClipboardCheck, color: 'bg-warning/10 text-warning' },
+    { label: 'Buổi học', value: stats.sessions, icon: Video, color: 'bg-success/10 text-success' },
   ];
 
   return (
@@ -167,7 +192,7 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        {stats.map((stat, index) => (
+        {statsData.map((stat, index) => (
           <Card key={index} className="animate-fade-in" style={{ animationDelay: `${index * 50}ms` }}>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">

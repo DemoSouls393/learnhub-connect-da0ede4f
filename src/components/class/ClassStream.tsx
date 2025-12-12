@@ -1,13 +1,28 @@
 import { useState, useEffect } from 'react';
-import { Plus, Send } from 'lucide-react';
+import { Plus, Send, Pin, PinOff, Trash2, MoreVertical, MessageSquare, Edit2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 
 interface Announcement {
   id: string;
@@ -15,6 +30,7 @@ interface Announcement {
   content: string;
   is_pinned: boolean;
   created_at: string;
+  author_id: string;
   author: {
     full_name: string;
     avatar_url: string | null;
@@ -30,12 +46,38 @@ interface ClassStreamProps {
 export default function ClassStream({ classId, isTeacher, profileId }: ClassStreamProps) {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newAnnouncement, setNewAnnouncement] = useState('');
+  const [newTitle, setNewTitle] = useState('');
+  const [newContent, setNewContent] = useState('');
   const [isPosting, setIsPosting] = useState(false);
+  const [showComposer, setShowComposer] = useState(false);
+  const [editingAnnouncement, setEditingAnnouncement] = useState<Announcement | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editContent, setEditContent] = useState('');
   const { toast } = useToast();
 
   useEffect(() => {
     fetchAnnouncements();
+
+    // Realtime subscription
+    const channel = supabase
+      .channel(`announcements-${classId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'announcements',
+          filter: `class_id=eq.${classId}`
+        },
+        () => {
+          fetchAnnouncements();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [classId]);
 
   const fetchAnnouncements = async () => {
@@ -72,7 +114,14 @@ export default function ClassStream({ classId, isTeacher, profileId }: ClassStre
   };
 
   const handlePost = async () => {
-    if (!newAnnouncement.trim()) return;
+    if (!newContent.trim()) {
+      toast({
+        title: 'Lỗi',
+        description: 'Vui lòng nhập nội dung thông báo',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     setIsPosting(true);
     try {
@@ -81,14 +130,15 @@ export default function ClassStream({ classId, isTeacher, profileId }: ClassStre
         .insert({
           class_id: classId,
           author_id: profileId,
-          title: 'Thông báo',
-          content: newAnnouncement,
+          title: newTitle.trim() || 'Thông báo',
+          content: newContent.trim(),
         });
 
       if (error) throw error;
 
-      setNewAnnouncement('');
-      fetchAnnouncements();
+      setNewTitle('');
+      setNewContent('');
+      setShowComposer(false);
       toast({
         title: 'Thành công',
         description: 'Thông báo đã được đăng',
@@ -101,6 +151,86 @@ export default function ClassStream({ classId, isTeacher, profileId }: ClassStre
       });
     } finally {
       setIsPosting(false);
+    }
+  };
+
+  const handleTogglePin = async (announcement: Announcement) => {
+    try {
+      const { error } = await supabase
+        .from('announcements')
+        .update({ is_pinned: !announcement.is_pinned })
+        .eq('id', announcement.id);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Thành công',
+        description: announcement.is_pinned ? 'Đã bỏ ghim' : 'Đã ghim thông báo',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Lỗi',
+        description: error.message,
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Bạn có chắc muốn xóa thông báo này?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('announcements')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Thành công',
+        description: 'Đã xóa thông báo',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Lỗi',
+        description: error.message,
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleEdit = (announcement: Announcement) => {
+    setEditingAnnouncement(announcement);
+    setEditTitle(announcement.title);
+    setEditContent(announcement.content);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingAnnouncement || !editContent.trim()) return;
+
+    try {
+      const { error } = await supabase
+        .from('announcements')
+        .update({
+          title: editTitle.trim() || 'Thông báo',
+          content: editContent.trim(),
+        })
+        .eq('id', editingAnnouncement.id);
+
+      if (error) throw error;
+
+      setEditingAnnouncement(null);
+      toast({
+        title: 'Thành công',
+        description: 'Đã cập nhật thông báo',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Lỗi',
+        description: error.message,
+        variant: 'destructive',
+      });
     }
   };
 
@@ -119,18 +249,45 @@ export default function ClassStream({ classId, isTeacher, profileId }: ClassStre
       {isTeacher && (
         <Card>
           <CardContent className="p-4">
-            <Textarea
-              placeholder="Đăng thông báo cho lớp học..."
-              value={newAnnouncement}
-              onChange={(e) => setNewAnnouncement(e.target.value)}
-              className="min-h-[100px] mb-3"
-            />
-            <div className="flex justify-end">
-              <Button onClick={handlePost} disabled={isPosting || !newAnnouncement.trim()}>
-                <Send size={16} />
-                {isPosting ? 'Đang đăng...' : 'Đăng thông báo'}
-              </Button>
-            </div>
+            {!showComposer ? (
+              <div 
+                className="flex items-center gap-3 p-3 rounded-lg border border-dashed cursor-pointer hover:bg-muted/50 transition-colors"
+                onClick={() => setShowComposer(true)}
+              >
+                <Avatar className="h-10 w-10">
+                  <AvatarFallback className="bg-primary text-primary-foreground">GV</AvatarFallback>
+                </Avatar>
+                <span className="text-muted-foreground">Thông báo nội dung nào đó cho lớp học của bạn...</span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <Input
+                  placeholder="Tiêu đề (tùy chọn)"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                />
+                <Textarea
+                  placeholder="Nội dung thông báo..."
+                  value={newContent}
+                  onChange={(e) => setNewContent(e.target.value)}
+                  className="min-h-[120px]"
+                  autoFocus
+                />
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => {
+                    setShowComposer(false);
+                    setNewTitle('');
+                    setNewContent('');
+                  }}>
+                    Hủy
+                  </Button>
+                  <Button onClick={handlePost} disabled={isPosting || !newContent.trim()}>
+                    <Send size={16} className="mr-1" />
+                    {isPosting ? 'Đang đăng...' : 'Đăng'}
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -156,13 +313,20 @@ export default function ClassStream({ classId, isTeacher, profileId }: ClassStre
       ) : announcements.length === 0 ? (
         <Card className="text-center py-12">
           <CardContent>
-            <p className="text-muted-foreground">Chưa có thông báo nào</p>
+            <MessageSquare className="mx-auto mb-4 text-muted-foreground" size={48} />
+            <h3 className="font-semibold mb-2">Chưa có thông báo nào</h3>
+            <p className="text-muted-foreground">
+              {isTeacher ? 'Đăng thông báo đầu tiên cho lớp học của bạn' : 'Giáo viên chưa đăng thông báo nào'}
+            </p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-4">
           {announcements.map((announcement) => (
-            <Card key={announcement.id} className={announcement.is_pinned ? 'border-primary' : ''}>
+            <Card 
+              key={announcement.id} 
+              className={`transition-all ${announcement.is_pinned ? 'border-primary shadow-md' : ''}`}
+            >
               <CardContent className="p-4">
                 <div className="flex items-start gap-3">
                   <Avatar>
@@ -171,19 +335,60 @@ export default function ClassStream({ classId, isTeacher, profileId }: ClassStre
                       {announcement.author ? getInitials(announcement.author.full_name) : 'U'}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium">{announcement.author?.full_name || 'Không xác định'}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(announcement.created_at), { addSuffix: true, locale: vi })}
-                      </span>
-                      {announcement.is_pinned && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                          Ghim
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium">{announcement.author?.full_name || 'Không xác định'}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {formatDistanceToNow(new Date(announcement.created_at), { addSuffix: true, locale: vi })}
                         </span>
+                        {announcement.is_pinned && (
+                          <Badge variant="secondary" className="gap-1">
+                            <Pin size={12} />
+                            Đã ghim
+                          </Badge>
+                        )}
+                      </div>
+                      {isTeacher && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreVertical size={16} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleEdit(announcement)}>
+                              <Edit2 className="mr-2 h-4 w-4" />
+                              Chỉnh sửa
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleTogglePin(announcement)}>
+                              {announcement.is_pinned ? (
+                                <>
+                                  <PinOff className="mr-2 h-4 w-4" />
+                                  Bỏ ghim
+                                </>
+                              ) : (
+                                <>
+                                  <Pin className="mr-2 h-4 w-4" />
+                                  Ghim
+                                </>
+                              )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              className="text-destructive"
+                              onClick={() => handleDelete(announcement.id)}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Xóa
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       )}
                     </div>
-                    <p className="text-foreground whitespace-pre-wrap">{announcement.content}</p>
+                    {announcement.title !== 'Thông báo' && (
+                      <h4 className="font-semibold mt-2">{announcement.title}</h4>
+                    )}
+                    <p className="text-foreground whitespace-pre-wrap mt-2">{announcement.content}</p>
                   </div>
                 </div>
               </CardContent>
@@ -191,6 +396,36 @@ export default function ClassStream({ classId, isTeacher, profileId }: ClassStre
           ))}
         </div>
       )}
+
+      {/* Edit Dialog */}
+      <Dialog open={!!editingAnnouncement} onOpenChange={() => setEditingAnnouncement(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Chỉnh sửa thông báo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <Input
+              placeholder="Tiêu đề"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+            />
+            <Textarea
+              placeholder="Nội dung..."
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              className="min-h-[120px]"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingAnnouncement(null)}>
+              Hủy
+            </Button>
+            <Button onClick={handleSaveEdit} disabled={!editContent.trim()}>
+              Lưu thay đổi
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
