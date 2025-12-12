@@ -103,6 +103,24 @@ const QuestionEditor = ({ assignmentId, orderIndex, question, onClose, onSave }:
       }
     }
 
+    if (questionType === "true_false" && !correctAnswer) {
+      toast({
+        title: "Lỗi",
+        description: "Vui lòng chọn đáp án đúng (Đúng/Sai)",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (questionType === "short_answer" && !correctAnswer.trim()) {
+      toast({
+        title: "Lỗi",
+        description: "Vui lòng nhập đáp án đúng",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       const correctOptionId = options.find(o => o.isCorrect)?.id || "";
