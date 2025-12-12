@@ -8,6 +8,9 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import ClassDetail from "./pages/ClassDetail";
+import AssignmentDetail from "./pages/AssignmentDetail";
+import TakeQuiz from "./pages/TakeQuiz";
+import LiveSession from "./pages/LiveSession";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -24,6 +27,9 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/class/:id" element={<ClassDetail />} />
+            <Route path="/class/:classId/assignment/:assignmentId" element={<AssignmentDetail />} />
+            <Route path="/class/:classId/assignment/:assignmentId/take" element={<TakeQuiz />} />
+            <Route path="/class/:classId/session/:sessionId" element={<LiveSession />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
