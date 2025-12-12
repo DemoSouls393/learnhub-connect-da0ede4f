@@ -77,3 +77,19 @@ export async function notifyNewAnnouncement(
     link: `/class/${classId}`,
   });
 }
+
+export async function notifyTeacherSubmission(
+  teacherId: string,
+  studentName: string,
+  assignmentTitle: string,
+  classId: string,
+  assignmentId: string
+) {
+  return createNotification({
+    userId: teacherId,
+    title: "Học sinh nộp bài",
+    message: `${studentName} đã nộp bài "${assignmentTitle}"`,
+    type: "info",
+    link: `/class/${classId}/assignment/${assignmentId}`,
+  });
+}
