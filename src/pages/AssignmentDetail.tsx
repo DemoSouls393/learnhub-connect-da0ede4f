@@ -17,7 +17,21 @@ import type { Tables } from "@/integrations/supabase/types";
 
 type Assignment = Tables<"assignments">;
 type Question = Tables<"questions">;
-type Submission = Tables<"submissions">;
+
+interface Submission {
+  id: string;
+  student_id: string;
+  status: string;
+  score: number | null;
+  feedback: string | null;
+  submitted_at: string | null;
+  started_at: string;
+  answers: Record<string, string> | null;
+  profiles?: {
+    full_name: string;
+    email: string;
+  };
+}
 
 const AssignmentDetail = () => {
   const { classId, assignmentId } = useParams();
@@ -75,17 +89,41 @@ const AssignmentDetail = () => {
       if (teacherCheck) {
         const { data: submissionsData } = await supabase
           .from("submissions")
-          .select("*, profiles:student_id(full_name, email)")
+          .select("id, student_id, status, score, feedback, submitted_at, started_at, answers, profiles:student_id(full_name, email)")
           .eq("assignment_id", assignmentId);
-        setSubmissions(submissionsData || []);
+        const mappedSubmissions: Submission[] = (submissionsData || []).map((s) => ({
+          id: s.id,
+          student_id: s.student_id,
+          status: s.status,
+          score: s.score,
+          feedback: s.feedback,
+          submitted_at: s.submitted_at,
+          started_at: s.started_at,
+          answers: s.answers as Record<string, string> | null,
+          profiles: s.profiles as { full_name: string; email: string } | undefined,
+        }));
+        setSubmissions(mappedSubmissions);
       } else {
         const { data: mySubmissionData } = await supabase
           .from("submissions")
-          .select("*")
+          .select("id, student_id, status, score, feedback, submitted_at, started_at, answers")
           .eq("assignment_id", assignmentId)
           .eq("student_id", profile?.id)
           .maybeSingle();
-        setMySubmission(mySubmissionData);
+        if (mySubmissionData) {
+          setMySubmission({
+            id: mySubmissionData.id,
+            student_id: mySubmissionData.student_id,
+            status: mySubmissionData.status,
+            score: mySubmissionData.score,
+            feedback: mySubmissionData.feedback,
+            submitted_at: mySubmissionData.submitted_at,
+            started_at: mySubmissionData.started_at,
+            answers: mySubmissionData.answers as Record<string, string> | null,
+          });
+        } else {
+          setMySubmission(null);
+        }
       }
     } catch (error) {
       console.error("Error fetching assignment:", error);

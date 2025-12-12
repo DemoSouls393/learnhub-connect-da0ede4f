@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2 } from "lucide-react";
-import type { Tables } from "@/integrations/supabase/types";
+import type { Tables, Json } from "@/integrations/supabase/types";
 
 type Question = Tables<"questions">;
 
@@ -113,7 +113,7 @@ const QuestionEditor = ({ assignmentId, orderIndex, question, onClose, onSave }:
         question_text: questionText,
         points,
         order_index: orderIndex,
-        options: questionType === "multiple_choice" ? (options as unknown as Record<string, unknown>[]) : null,
+        options: questionType === "multiple_choice" ? (options as unknown as Json) : null,
         correct_answer: questionType === "multiple_choice" ? correctOptionId : correctAnswer,
       };
 
