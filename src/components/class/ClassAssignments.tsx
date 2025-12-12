@@ -197,6 +197,32 @@ export default function ClassAssignments({ classId, isTeacher }: ClassAssignment
     }
   };
 
+  const handleDelete = async (e: React.MouseEvent, assignmentId: string) => {
+    e.stopPropagation();
+    if (!confirm('Bạn có chắc muốn xóa bài tập này? Tất cả câu hỏi và bài nộp sẽ bị xóa.')) return;
+
+    try {
+      const { error } = await supabase
+        .from('assignments')
+        .delete()
+        .eq('id', assignmentId);
+
+      if (error) throw error;
+
+      setAssignments(assignments.filter(a => a.id !== assignmentId));
+      toast({
+        title: 'Thành công',
+        description: 'Đã xóa bài tập',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Lỗi',
+        description: error.message,
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleAssignmentClick = (assignment: Assignment) => {
     if (isTeacher) {
       navigate(`/class/${classId}/assignment/${assignment.id}`);
@@ -444,13 +470,23 @@ export default function ClassAssignments({ classId, isTeacher }: ClassAssignment
                   <div className="flex items-center gap-2">
                     {!isTeacher && getSubmissionStatus(assignment.id)}
                     {isTeacher && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => togglePublish(e, assignment)}
-                      >
-                        {assignment.is_published ? 'Ẩn' : 'Công bố'}
-                      </Button>
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => togglePublish(e, assignment)}
+                        >
+                          {assignment.is_published ? 'Ẩn' : 'Công bố'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => handleDelete(e, assignment.id)}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 size={16} />
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>
