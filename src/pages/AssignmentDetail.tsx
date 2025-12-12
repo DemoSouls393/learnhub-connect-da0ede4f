@@ -430,13 +430,48 @@ const AssignmentDetail = () => {
                 </div>
               </div>
 
-              {mySubmission && mySubmission.status === "submitted" && (
-                <div className="p-4 bg-success/10 rounded-lg">
-                  <p className="font-medium text-success">Bạn đã nộp bài</p>
-                  {mySubmission.score !== null && (
-                    <p className="text-lg font-bold mt-1">
-                      Điểm: {mySubmission.score}/{assignment.total_points}
-                    </p>
+              {/* Show result for submitted or graded submissions */}
+              {mySubmission && (mySubmission.status === "submitted" || mySubmission.status === "graded") && (
+                <div className={`p-4 rounded-lg border ${
+                  mySubmission.status === "graded" 
+                    ? "bg-success/10 border-success/20" 
+                    : "bg-muted border-border"
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className={`font-medium ${mySubmission.status === "graded" ? "text-success" : "text-muted-foreground"}`}>
+                        {mySubmission.status === "graded" ? "Đã chấm điểm" : "Đang chờ chấm điểm"}
+                      </p>
+                      {mySubmission.submitted_at && (
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Nộp lúc: {format(new Date(mySubmission.submitted_at), "dd/MM/yyyy HH:mm", { locale: vi })}
+                        </p>
+                      )}
+                    </div>
+                    {mySubmission.status === "graded" && mySubmission.score !== null && (
+                      <div className="text-right">
+                        <p className="text-3xl font-bold text-success">
+                          {mySubmission.score}/{assignment.total_points}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {Math.round((mySubmission.score / (assignment.total_points || 100)) * 100)}%
+                        </p>
+                      </div>
+                    )}
+                    {mySubmission.status === "submitted" && mySubmission.score === null && (
+                      <Badge variant="secondary">
+                        <Clock className="h-3 w-3 mr-1" />
+                        Chờ giáo viên chấm
+                      </Badge>
+                    )}
+                  </div>
+                  
+                  {/* Show feedback if available */}
+                  {mySubmission.feedback && (
+                    <div className="mt-4 pt-4 border-t">
+                      <p className="text-sm font-medium mb-1">Nhận xét của giáo viên:</p>
+                      <p className="text-muted-foreground">{mySubmission.feedback}</p>
+                    </div>
                   )}
                 </div>
               )}
