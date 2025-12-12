@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { notifyStudentGraded } from "@/lib/notifications";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Question = Tables<"questions">;
@@ -52,6 +54,9 @@ interface SubmissionGradingDialogProps {
   submission: Submission;
   questions: Question[];
   totalPoints: number;
+  assignmentTitle?: string;
+  classId?: string;
+  assignmentId?: string;
   onClose: () => void;
   onSave: () => void;
 }
@@ -240,6 +245,16 @@ const SubmissionGradingDialog = ({
         .eq("id", submission.id);
 
       if (error) throw error;
+
+      // Send notification to student
+      await notifyStudentGraded(
+        submission.student_id,
+        "bài kiểm tra",
+        score,
+        totalPoints,
+        window.location.pathname.split("/")[2] || "",
+        window.location.pathname.split("/")[4] || ""
+      );
 
       toast({
         title: "Hoàn thành chấm điểm",

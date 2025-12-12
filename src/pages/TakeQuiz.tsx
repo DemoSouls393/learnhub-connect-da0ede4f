@@ -14,9 +14,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Clock, AlertTriangle, Send, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Tables, Json } from "@/integrations/supabase/types";
 
-type Assignment = Tables<"assignments">;
+type Assignment = Tables<"assignments"> & { max_attempts?: number };
 type Question = Tables<"questions">;
-type Submission = Tables<"submissions">;
+type Submission = Tables<"submissions"> & { attempt_number?: number };
 
 interface Option {
   id: string;
@@ -33,12 +33,14 @@ const TakeQuiz = () => {
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [submission, setSubmission] = useState<Submission | null>(null);
+  const [allSubmissions, setAllSubmissions] = useState<Submission[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [currentAttempt, setCurrentAttempt] = useState(1);
 
   useEffect(() => {
     if (assignmentId && profile) {
@@ -131,51 +133,66 @@ const TakeQuiz = () => {
 
       setQuestions(finalQuestions);
 
-      // Fetch or create submission
-      const { data: submissionData, error: submissionError } = await supabase
+      // Fetch all submissions for this assignment by this student
+      const { data: allSubmissionsData, error: allSubmissionsError } = await supabase
         .from("submissions")
         .select("*")
         .eq("assignment_id", assignmentId)
         .eq("student_id", profile?.id)
-        .maybeSingle();
+        .order("attempt_number", { ascending: true });
 
-      if (submissionError) throw submissionError;
+      if (allSubmissionsError) throw allSubmissionsError;
+      setAllSubmissions(allSubmissionsData || []);
 
-      if (submissionData) {
-        if (submissionData.status === "submitted") {
-          toast({
-            title: "Thông báo",
-            description: "Bạn đã nộp bài này rồi",
-          });
-          navigate(`/class/${classId}/assignment/${assignmentId}`);
-          return;
-        }
-        setSubmission(submissionData);
-        if (submissionData.answers) {
-          setAnswers(submissionData.answers as Record<string, string>);
+      const completedAttempts = (allSubmissionsData || []).filter(
+        s => s.status === "submitted" || s.status === "graded"
+      ).length;
+
+      // Check attempt limits
+      const maxAttempts = assignmentData.max_attempts || 1;
+      if (completedAttempts >= maxAttempts) {
+        toast({
+          title: "Hết lượt làm bài",
+          description: `Bạn đã sử dụng hết ${maxAttempts} lượt làm bài cho bài này.`,
+        });
+        navigate(`/class/${classId}/assignment/${assignmentId}`);
+        return;
+      }
+
+      // Find in-progress submission or create new one
+      const inProgressSubmission = (allSubmissionsData || []).find(s => s.status === "in_progress");
+
+      if (inProgressSubmission) {
+        setSubmission(inProgressSubmission);
+        setCurrentAttempt(inProgressSubmission.attempt_number || completedAttempts + 1);
+        if (inProgressSubmission.answers) {
+          setAnswers(inProgressSubmission.answers as Record<string, string>);
         }
 
         // Calculate remaining time
         if (assignmentData.time_limit_minutes) {
-          const startTime = new Date(submissionData.started_at).getTime();
+          const startTime = new Date(inProgressSubmission.started_at).getTime();
           const elapsed = Math.floor((Date.now() - startTime) / 1000);
           const remaining = assignmentData.time_limit_minutes * 60 - elapsed;
           setTimeLeft(Math.max(0, remaining));
         }
       } else {
-        // Create new submission
+        // Create new submission with next attempt number
+        const nextAttempt = completedAttempts + 1;
         const { data: newSubmission, error: createError } = await supabase
           .from("submissions")
           .insert({
             assignment_id: assignmentId,
             student_id: profile?.id,
             status: "in_progress",
+            attempt_number: nextAttempt,
           })
           .select()
           .single();
 
         if (createError) throw createError;
         setSubmission(newSubmission);
+        setCurrentAttempt(nextAttempt);
 
         if (assignmentData.time_limit_minutes) {
           setTimeLeft(assignmentData.time_limit_minutes * 60);
@@ -329,6 +346,9 @@ const TakeQuiz = () => {
               <h1 className="font-bold text-lg">{assignment?.title}</h1>
               <p className="text-sm text-muted-foreground">
                 Câu {currentIndex + 1}/{questions.length} • Đã trả lời {answeredCount}/{questions.length}
+                {(assignment?.max_attempts || 1) > 1 && (
+                  <span className="ml-2">• Lần làm: {currentAttempt}/{assignment?.max_attempts}</span>
+                )}
               </p>
             </div>
 

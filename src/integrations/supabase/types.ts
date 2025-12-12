@@ -70,6 +70,7 @@ export type Database = {
           due_date: string | null
           id: string
           is_published: boolean | null
+          max_attempts: number | null
           shuffle_answers: boolean | null
           shuffle_questions: boolean | null
           time_limit_minutes: number | null
@@ -88,6 +89,7 @@ export type Database = {
           due_date?: string | null
           id?: string
           is_published?: boolean | null
+          max_attempts?: number | null
           shuffle_answers?: boolean | null
           shuffle_questions?: boolean | null
           time_limit_minutes?: number | null
@@ -106,6 +108,7 @@ export type Database = {
           due_date?: string | null
           id?: string
           is_published?: boolean | null
+          max_attempts?: number | null
           shuffle_answers?: boolean | null
           shuffle_questions?: boolean | null
           time_limit_minutes?: number | null
@@ -346,6 +349,47 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          is_read: boolean | null
+          link: string | null
+          message: string
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_read?: boolean | null
+          link?: string | null
+          message: string
+          title: string
+          type?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_read?: boolean | null
+          link?: string | null
+          message?: string
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -482,6 +526,7 @@ export type Database = {
           answers: Json | null
           anti_cheat_log: Json | null
           assignment_id: string
+          attempt_number: number | null
           created_at: string
           feedback: string | null
           id: string
@@ -495,6 +540,7 @@ export type Database = {
           answers?: Json | null
           anti_cheat_log?: Json | null
           assignment_id: string
+          attempt_number?: number | null
           created_at?: string
           feedback?: string | null
           id?: string
@@ -508,6 +554,7 @@ export type Database = {
           answers?: Json | null
           anti_cheat_log?: Json | null
           assignment_id?: string
+          attempt_number?: number | null
           created_at?: string
           feedback?: string | null
           id?: string

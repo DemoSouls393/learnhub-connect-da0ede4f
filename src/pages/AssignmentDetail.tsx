@@ -27,6 +27,7 @@ interface Submission {
   submitted_at: string | null;
   started_at: string;
   answers: Record<string, string> | null;
+  attempt_number?: number;
   profiles?: {
     full_name: string;
     email: string;
@@ -42,6 +43,7 @@ const AssignmentDetail = () => {
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [mySubmissions, setMySubmissions] = useState<Submission[]>([]);
   const [mySubmission, setMySubmission] = useState<Submission | null>(null);
   const [isTeacher, setIsTeacher] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -85,11 +87,11 @@ const AssignmentDetail = () => {
       if (questionsError) throw questionsError;
       setQuestions(questionsData || []);
 
-      // Fetch submissions (for teacher) or my submission (for student)
+      // Fetch submissions (for teacher) or my submissions (for student)
       if (teacherCheck) {
         const { data: submissionsData } = await supabase
           .from("submissions")
-          .select("id, student_id, status, score, feedback, submitted_at, started_at, answers, profiles:student_id(full_name, email)")
+          .select("id, student_id, status, score, feedback, submitted_at, started_at, answers, attempt_number, profiles:student_id(full_name, email)")
           .eq("assignment_id", assignmentId);
         const mappedSubmissions: Submission[] = (submissionsData || []).map((s) => ({
           id: s.id,
@@ -100,28 +102,42 @@ const AssignmentDetail = () => {
           submitted_at: s.submitted_at,
           started_at: s.started_at,
           answers: s.answers as Record<string, string> | null,
+          attempt_number: s.attempt_number,
           profiles: s.profiles as { full_name: string; email: string } | undefined,
         }));
         setSubmissions(mappedSubmissions);
       } else {
-        const { data: mySubmissionData } = await supabase
+        // Fetch ALL submissions for this student (for attempt history)
+        const { data: allMySubmissions } = await supabase
           .from("submissions")
-          .select("id, student_id, status, score, feedback, submitted_at, started_at, answers")
+          .select("id, student_id, status, score, feedback, submitted_at, started_at, answers, attempt_number")
           .eq("assignment_id", assignmentId)
           .eq("student_id", profile?.id)
-          .maybeSingle();
-        if (mySubmissionData) {
-          setMySubmission({
-            id: mySubmissionData.id,
-            student_id: mySubmissionData.student_id,
-            status: mySubmissionData.status,
-            score: mySubmissionData.score,
-            feedback: mySubmissionData.feedback,
-            submitted_at: mySubmissionData.submitted_at,
-            started_at: mySubmissionData.started_at,
-            answers: mySubmissionData.answers as Record<string, string> | null,
-          });
+          .order("attempt_number", { ascending: true });
+
+        if (allMySubmissions && allMySubmissions.length > 0) {
+          const mappedSubmissions: Submission[] = allMySubmissions.map(s => ({
+            id: s.id,
+            student_id: s.student_id,
+            status: s.status,
+            score: s.score,
+            feedback: s.feedback,
+            submitted_at: s.submitted_at,
+            started_at: s.started_at,
+            answers: s.answers as Record<string, string> | null,
+            attempt_number: s.attempt_number,
+          }));
+          setMySubmissions(mappedSubmissions);
+          
+          // Set the latest graded/submitted as main or the in-progress one
+          const latestCompleted = mappedSubmissions
+            .filter(s => s.status === "submitted" || s.status === "graded")
+            .sort((a, b) => (b.attempt_number || 0) - (a.attempt_number || 0))[0];
+          const inProgress = mappedSubmissions.find(s => s.status === "in_progress");
+          
+          setMySubmission(latestCompleted || inProgress || null);
         } else {
+          setMySubmissions([]);
           setMySubmission(null);
         }
       }
@@ -138,27 +154,31 @@ const AssignmentDetail = () => {
   };
 
   const handleStartQuiz = async () => {
-    if (!profile || !assignmentId) return;
+    if (!profile || !assignmentId || !assignment) return;
 
     try {
-      // Check if already has submission
-      if (mySubmission) {
+      // Check attempt limits
+      const maxAttempts = (assignment as any).max_attempts || 1;
+      const completedAttempts = mySubmissions.filter(
+        s => s.status === "submitted" || s.status === "graded"
+      ).length;
+
+      // If there's an in-progress submission, continue it
+      const inProgress = mySubmissions.find(s => s.status === "in_progress");
+      if (inProgress) {
         navigate(`/class/${classId}/assignment/${assignmentId}/take`);
         return;
       }
 
-      // Create new submission
-      const { data, error } = await supabase
-        .from("submissions")
-        .insert({
-          assignment_id: assignmentId,
-          student_id: profile.id,
-          status: "in_progress",
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
+      // Check if max attempts reached
+      if (completedAttempts >= maxAttempts) {
+        toast({
+          title: "Hết lượt làm bài",
+          description: `Bạn đã sử dụng hết ${maxAttempts} lượt làm bài.`,
+          variant: "destructive",
+        });
+        return;
+      }
 
       navigate(`/class/${classId}/assignment/${assignmentId}/take`);
     } catch (error) {
@@ -215,28 +235,43 @@ const AssignmentDetail = () => {
               )}
             </div>
 
-            {!isTeacher && assignment.is_published && (
-              <Button onClick={handleStartQuiz} variant="hero">
-                {mySubmission ? (
-                  mySubmission.status === "submitted" ? (
-                    <>
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Đã nộp
-                    </>
-                  ) : (
-                    <>
-                      <Play className="h-4 w-4 mr-2" />
-                      Tiếp tục làm bài
-                    </>
-                  )
-                ) : (
-                  <>
+            {!isTeacher && assignment.is_published && (() => {
+              const maxAttempts = (assignment as any).max_attempts || 1;
+              const completedAttempts = mySubmissions.filter(
+                s => s.status === "submitted" || s.status === "graded"
+              ).length;
+              const hasInProgress = mySubmissions.some(s => s.status === "in_progress");
+              const canStartNew = completedAttempts < maxAttempts;
+
+              if (hasInProgress) {
+                return (
+                  <Button onClick={handleStartQuiz} variant="hero">
+                    <Play className="h-4 w-4 mr-2" />
+                    Tiếp tục làm bài
+                  </Button>
+                );
+              }
+
+              if (completedAttempts === 0) {
+                return (
+                  <Button onClick={handleStartQuiz} variant="hero">
                     <Play className="h-4 w-4 mr-2" />
                     Bắt đầu làm bài
-                  </>
-                )}
-              </Button>
-            )}
+                  </Button>
+                );
+              }
+
+              if (!canStartNew) {
+                return (
+                  <Button disabled variant="outline">
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Đã hoàn thành ({completedAttempts}/{maxAttempts} lượt)
+                  </Button>
+                );
+              }
+
+              return null;
+            })()}
           </div>
         </div>
 
@@ -430,51 +465,126 @@ const AssignmentDetail = () => {
                 </div>
               </div>
 
-              {/* Show result for submitted or graded submissions */}
-              {mySubmission && (mySubmission.status === "submitted" || mySubmission.status === "graded") && (
-                <div className={`p-4 rounded-lg border ${
-                  mySubmission.status === "graded" 
-                    ? "bg-success/10 border-success/20" 
-                    : "bg-muted border-border"
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className={`font-medium ${mySubmission.status === "graded" ? "text-success" : "text-muted-foreground"}`}>
-                        {mySubmission.status === "graded" ? "Đã chấm điểm" : "Đang chờ chấm điểm"}
-                      </p>
-                      {mySubmission.submitted_at && (
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Nộp lúc: {format(new Date(mySubmission.submitted_at), "dd/MM/yyyy HH:mm", { locale: vi })}
+              {/* Attempt info and history */}
+              {(() => {
+                const maxAttempts = (assignment as any).max_attempts || 1;
+                const completedAttempts = mySubmissions.filter(
+                  s => s.status === "submitted" || s.status === "graded"
+                ).length;
+                const hasInProgress = mySubmissions.some(s => s.status === "in_progress");
+                const canStartNew = completedAttempts < maxAttempts && !hasInProgress;
+
+                return (
+                  <>
+                    {maxAttempts > 1 && (
+                      <div className="p-3 bg-muted rounded-lg">
+                        <p className="text-sm font-medium">
+                          Số lần làm bài: {completedAttempts}/{maxAttempts}
                         </p>
-                      )}
-                    </div>
-                    {mySubmission.status === "graded" && mySubmission.score !== null && (
-                      <div className="text-right">
-                        <p className="text-3xl font-bold text-success">
-                          {mySubmission.score}/{assignment.total_points}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {Math.round((mySubmission.score / (assignment.total_points || 100)) * 100)}%
+                        <p className="text-xs text-muted-foreground">
+                          {canStartNew 
+                            ? `Còn ${maxAttempts - completedAttempts} lượt làm bài`
+                            : hasInProgress 
+                              ? "Đang có bài làm dở"
+                              : "Đã hết lượt làm bài"}
                         </p>
                       </div>
                     )}
-                    {mySubmission.status === "submitted" && mySubmission.score === null && (
-                      <Badge variant="secondary">
-                        <Clock className="h-3 w-3 mr-1" />
-                        Chờ giáo viên chấm
-                      </Badge>
+
+                    {/* Show result for latest submission */}
+                    {mySubmission && (mySubmission.status === "submitted" || mySubmission.status === "graded") && (
+                      <div className={`p-4 rounded-lg border ${
+                        mySubmission.status === "graded" 
+                          ? "bg-success/10 border-success/20" 
+                          : "bg-muted border-border"
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className={`font-medium ${mySubmission.status === "graded" ? "text-success" : "text-muted-foreground"}`}>
+                              {mySubmission.status === "graded" ? "Đã chấm điểm" : "Đang chờ chấm điểm"}
+                              {mySubmission.attempt_number && maxAttempts > 1 && (
+                                <span className="text-xs ml-2">(Lần {mySubmission.attempt_number})</span>
+                              )}
+                            </p>
+                            {mySubmission.submitted_at && (
+                              <p className="text-sm text-muted-foreground mt-1">
+                                Nộp lúc: {format(new Date(mySubmission.submitted_at), "dd/MM/yyyy HH:mm", { locale: vi })}
+                              </p>
+                            )}
+                          </div>
+                          {mySubmission.status === "graded" && mySubmission.score !== null && (
+                            <div className="text-right">
+                              <p className="text-3xl font-bold text-success">
+                                {mySubmission.score}/{assignment.total_points}
+                              </p>
+                              <p className="text-sm text-muted-foreground">
+                                {Math.round((mySubmission.score / (assignment.total_points || 100)) * 100)}%
+                              </p>
+                            </div>
+                          )}
+                          {mySubmission.status === "submitted" && mySubmission.score === null && (
+                            <Badge variant="secondary">
+                              <Clock className="h-3 w-3 mr-1" />
+                              Chờ giáo viên chấm
+                            </Badge>
+                          )}
+                        </div>
+                        
+                        {/* Show feedback if available */}
+                        {mySubmission.feedback && (
+                          <div className="mt-4 pt-4 border-t">
+                            <p className="text-sm font-medium mb-1">Nhận xét của giáo viên:</p>
+                            <p className="text-muted-foreground">{mySubmission.feedback}</p>
+                          </div>
+                        )}
+                      </div>
                     )}
-                  </div>
-                  
-                  {/* Show feedback if available */}
-                  {mySubmission.feedback && (
-                    <div className="mt-4 pt-4 border-t">
-                      <p className="text-sm font-medium mb-1">Nhận xét của giáo viên:</p>
-                      <p className="text-muted-foreground">{mySubmission.feedback}</p>
-                    </div>
-                  )}
-                </div>
-              )}
+
+                    {/* Attempt history */}
+                    {mySubmissions.length > 1 && (
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium">Lịch sử làm bài</p>
+                        <div className="space-y-2">
+                          {mySubmissions
+                            .filter(s => s.status === "submitted" || s.status === "graded")
+                            .map((sub, index) => (
+                              <div 
+                                key={sub.id} 
+                                className="flex items-center justify-between p-3 bg-muted/50 rounded-lg text-sm"
+                              >
+                                <div>
+                                  <span className="font-medium">Lần {sub.attempt_number || index + 1}</span>
+                                  {sub.submitted_at && (
+                                    <span className="text-muted-foreground ml-2">
+                                      {format(new Date(sub.submitted_at), "dd/MM HH:mm", { locale: vi })}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {sub.status === "graded" && sub.score !== null ? (
+                                    <Badge variant={sub.score >= (assignment.total_points || 100) * 0.5 ? "default" : "destructive"}>
+                                      {sub.score}/{assignment.total_points}
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="secondary">Chờ chấm</Badge>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Start new attempt button */}
+                    {canStartNew && completedAttempts > 0 && (
+                      <Button onClick={handleStartQuiz} variant="outline" className="w-full">
+                        <Play className="h-4 w-4 mr-2" />
+                        Làm lại (Lần {completedAttempts + 1})
+                      </Button>
+                    )}
+                  </>
+                );
+              })()}
             </CardContent>
           </Card>
         )}
