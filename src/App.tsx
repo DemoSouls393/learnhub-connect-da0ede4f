@@ -11,6 +11,8 @@ import ClassDetail from "./pages/ClassDetail";
 import AssignmentDetail from "./pages/AssignmentDetail";
 import TakeQuiz from "./pages/TakeQuiz";
 import LiveSession from "./pages/LiveSession";
+import Profile from "./pages/Profile";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,6 +28,8 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="/class/:id" element={<ClassDetail />} />
             <Route path="/class/:classId/assignment/:assignmentId" element={<AssignmentDetail />} />
             <Route path="/class/:classId/assignment/:assignmentId/take" element={<TakeQuiz />} />
