@@ -7,9 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Video, Plus, Play, Users, Calendar, Clock } from "lucide-react";
+import { Video, Plus, Play, Calendar, Clock, Link2, Copy, Users, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import type { Tables } from "@/integrations/supabase/types";
@@ -29,11 +29,29 @@ const LiveSessionManager = ({ classId, isTeacher }: LiveSessionManagerProps) => 
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [shareSessionId, setShareSessionId] = useState<string | null>(null);
   const [newSessionTitle, setNewSessionTitle] = useState("");
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     fetchSessions();
+
+    // Subscribe to realtime updates
+    const channel = supabase
+      .channel(`sessions-${classId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "live_sessions", filter: `class_id=eq.${classId}` },
+        () => {
+          fetchSessions();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [classId]);
 
   const fetchSessions = async () => {
@@ -64,8 +82,7 @@ const LiveSessionManager = ({ classId, isTeacher }: LiveSessionManagerProps) => 
           class_id: classId,
           host_id: profile.id,
           title: newSessionTitle,
-          status: "live",
-          actual_start: new Date().toISOString(),
+          status: "scheduled",
         })
         .select()
         .single();
@@ -78,7 +95,10 @@ const LiveSessionManager = ({ classId, isTeacher }: LiveSessionManagerProps) => 
       });
       setShowCreateDialog(false);
       setNewSessionTitle("");
-      navigate(`/class/${classId}/session/${data.id}`);
+      
+      // Show share dialog
+      setShareSessionId(data.id);
+      setShowShareDialog(true);
     } catch (error) {
       console.error("Error creating session:", error);
       toast({
@@ -91,8 +111,39 @@ const LiveSessionManager = ({ classId, isTeacher }: LiveSessionManagerProps) => 
     }
   };
 
+  const startSession = async (sessionId: string) => {
+    try {
+      await supabase
+        .from("live_sessions")
+        .update({ status: "live", actual_start: new Date().toISOString() })
+        .eq("id", sessionId);
+
+      navigate(`/class/${classId}/session/${sessionId}`);
+    } catch (error) {
+      console.error("Error starting session:", error);
+    }
+  };
+
   const joinSession = (sessionId: string) => {
     navigate(`/class/${classId}/session/${sessionId}`);
+  };
+
+  const deleteSession = async (sessionId: string) => {
+    try {
+      await supabase.from("live_sessions").delete().eq("id", sessionId);
+      toast({ title: "Đã xóa phiên học" });
+    } catch (error) {
+      console.error("Error deleting session:", error);
+    }
+  };
+
+  const copySessionLink = (sessionId: string) => {
+    const link = `${window.location.origin}/class/${classId}/session/${sessionId}`;
+    navigator.clipboard.writeText(link);
+    toast({
+      title: "Đã sao chép link",
+      description: "Gửi link này để mời người khác tham gia",
+    });
   };
 
   const getStatusBadge = (status: string) => {
@@ -100,7 +151,7 @@ const LiveSessionManager = ({ classId, isTeacher }: LiveSessionManagerProps) => 
       case "live":
         return <Badge className="bg-red-500 animate-pulse">Đang diễn ra</Badge>;
       case "scheduled":
-        return <Badge variant="secondary">Đã lên lịch</Badge>;
+        return <Badge variant="secondary">Sẵn sàng</Badge>;
       case "ended":
         return <Badge variant="outline">Đã kết thúc</Badge>;
       default:
@@ -109,6 +160,7 @@ const LiveSessionManager = ({ classId, isTeacher }: LiveSessionManagerProps) => 
   };
 
   const activeSessions = sessions.filter(s => s.status === "live");
+  const scheduledSessions = sessions.filter(s => s.status === "scheduled");
   const pastSessions = sessions.filter(s => s.status === "ended");
 
   if (loading) {
@@ -137,16 +189,94 @@ const LiveSessionManager = ({ classId, isTeacher }: LiveSessionManagerProps) => 
                   key={session.id}
                   className="flex items-center justify-between p-4 bg-card border rounded-lg"
                 >
-                  <div>
-                    <h4 className="font-medium">{session.title}</h4>
-                    <p className="text-sm text-muted-foreground">
-                      Bắt đầu: {session.actual_start && format(new Date(session.actual_start), "HH:mm", { locale: vi })}
-                    </p>
+                  <div className="flex items-center gap-4">
+                    <div className="p-2 bg-red-500/10 rounded-lg">
+                      <Video className="h-5 w-5 text-red-500" />
+                    </div>
+                    <div>
+                      <h4 className="font-medium">{session.title}</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Bắt đầu: {session.actual_start && format(new Date(session.actual_start), "HH:mm", { locale: vi })}
+                      </p>
+                    </div>
                   </div>
-                  <Button onClick={() => joinSession(session.id)} variant="hero">
-                    <Play className="h-4 w-4 mr-2" />
-                    Tham gia ngay
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => copySessionLink(session.id)}
+                    >
+                      <Link2 className="h-4 w-4" />
+                    </Button>
+                    <Button onClick={() => joinSession(session.id)}>
+                      <Play className="h-4 w-4 mr-2" />
+                      Tham gia ngay
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Scheduled Sessions */}
+      {scheduledSessions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              Phiên học sẵn sàng
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {scheduledSessions.map((session) => (
+                <div
+                  key={session.id}
+                  className="flex items-center justify-between p-4 border rounded-lg"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="p-2 bg-muted rounded-lg">
+                      <Video className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <h4 className="font-medium">{session.title}</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Tạo lúc: {format(new Date(session.created_at), "dd/MM/yyyy HH:mm", { locale: vi })}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {getStatusBadge(session.status)}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => copySessionLink(session.id)}
+                    >
+                      <Link2 className="h-4 w-4" />
+                    </Button>
+                    {isTeacher ? (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteSession(session.id)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                        <Button onClick={() => startSession(session.id)}>
+                          <Play className="h-4 w-4 mr-2" />
+                          Bắt đầu
+                        </Button>
+                      </>
+                    ) : (
+                      <Button onClick={() => joinSession(session.id)}>
+                        <Users className="h-4 w-4 mr-2" />
+                        Vào phòng chờ
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -214,6 +344,9 @@ const LiveSessionManager = ({ classId, isTeacher }: LiveSessionManagerProps) => 
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Tạo phiên học trực tuyến</DialogTitle>
+            <DialogDescription>
+              Tạo một phiên học mới để bắt đầu họp video với học sinh
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -230,7 +363,46 @@ const LiveSessionManager = ({ classId, isTeacher }: LiveSessionManagerProps) => 
               Hủy
             </Button>
             <Button onClick={createSession} disabled={creating || !newSessionTitle.trim()}>
-              {creating ? "Đang tạo..." : "Tạo và bắt đầu"}
+              {creating ? "Đang tạo..." : "Tạo phiên học"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Share Dialog */}
+      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Chia sẻ phiên học</DialogTitle>
+            <DialogDescription>
+              Sao chép link bên dưới và gửi cho học sinh để họ có thể tham gia
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="flex gap-2">
+              <Input
+                readOnly
+                value={shareSessionId ? `${window.location.origin}/class/${classId}/session/${shareSessionId}` : ""}
+                className="flex-1"
+              />
+              <Button onClick={() => shareSessionId && copySessionLink(shareSessionId)}>
+                <Copy className="h-4 w-4 mr-2" />
+                Sao chép
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowShareDialog(false)}>
+              Đóng
+            </Button>
+            <Button onClick={() => {
+              if (shareSessionId) {
+                setShowShareDialog(false);
+                startSession(shareSessionId);
+              }
+            }}>
+              <Play className="h-4 w-4 mr-2" />
+              Bắt đầu ngay
             </Button>
           </DialogFooter>
         </DialogContent>
