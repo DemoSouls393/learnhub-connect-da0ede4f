@@ -82,11 +82,21 @@ export const useWebRTC = ({ sessionId, myPeerId, autoConnect = false }: UseWebRT
   }, []);
 
   // Toggle video
-  const toggleVideo = useCallback(() => {
+  const toggleVideo = useCallback(async () => {
     if (webrtcRef.current) {
       const newState = !isVideoEnabled;
-      webrtcRef.current.toggleVideo(newState);
-      setIsVideoEnabled(newState);
+      try {
+        await webrtcRef.current.toggleVideo(newState);
+        setIsVideoEnabled(newState);
+        
+        // Update local stream reference if video was re-acquired
+        if (newState) {
+          const stream = webrtcRef.current.getLocalStream();
+          setLocalStream(stream);
+        }
+      } catch (error) {
+        console.error("[useWebRTC] Toggle video error:", error);
+      }
     }
   }, [isVideoEnabled]);
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, BookOpen, ClipboardCheck, Calendar, Clock, Play, Video, Sparkles } from 'lucide-react';
+import { Plus, BookOpen, ClipboardCheck, Calendar, Clock, Play, Video, Sparkles, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -121,9 +121,31 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
         ) : (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {classes.map((cls, index) => (
-              <Card key={cls.id} className="card-interactive cursor-pointer group animate-fade-in" style={{ animationDelay: `${index * 50}ms` }} onClick={() => navigate(`/class/${cls.id}`)}>
-                <CardHeader className="pb-3"><CardTitle className="text-lg group-hover:text-primary transition-colors">{cls.name}</CardTitle>{cls.subject && <CardDescription>{cls.subject}</CardDescription>}</CardHeader>
-                <CardContent><div className="text-sm text-muted-foreground">GV: {cls.teacher?.full_name || 'Không xác định'}</div></CardContent>
+              <Card key={cls.id} className="group animate-fade-in overflow-hidden hover:shadow-lg transition-all duration-300 border-2 hover:border-accent/30" style={{ animationDelay: `${index * 50}ms` }}>
+                {/* Gradient header bar */}
+                <div className="h-2 bg-gradient-to-r from-accent to-primary" />
+                
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg group-hover:text-accent transition-colors">{cls.name}</CardTitle>
+                  {cls.subject && <CardDescription>{cls.subject}</CardDescription>}
+                </CardHeader>
+                
+                <CardContent className="space-y-4">
+                  <div className="text-sm text-muted-foreground">
+                    <span className="font-medium">GV:</span> {cls.teacher?.full_name || 'Không xác định'}
+                  </div>
+                  
+                  {/* Prominent View Class Button */}
+                  <Button 
+                    onClick={() => navigate(`/class/${cls.id}`)}
+                    variant="default"
+                    className="w-full group/btn bg-gradient-to-r from-accent to-primary hover:opacity-90 text-white font-medium h-11 shadow-md hover:shadow-lg transition-all duration-300"
+                  >
+                    <BookOpen size={18} className="mr-2" />
+                    Vào lớp học
+                    <ArrowRight size={16} className="ml-auto group-hover/btn:translate-x-1 transition-transform" />
+                  </Button>
+                </CardContent>
               </Card>
             ))}
           </div>
