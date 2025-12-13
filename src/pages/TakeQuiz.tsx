@@ -14,6 +14,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Clock, AlertTriangle, Send, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Tables, Json } from "@/integrations/supabase/types";
 import { notifyTeacherSubmission } from "@/lib/notifications";
+import CameraVerification from "@/components/quiz/CameraVerification";
+import AntiCheatMonitor from "@/components/quiz/AntiCheatMonitor";
 
 type Assignment = Tables<"assignments"> & { max_attempts?: number; class_id: string };
 type Question = Tables<"questions">;
@@ -44,6 +46,7 @@ const TakeQuiz = () => {
   const [submitting, setSubmitting] = useState(false);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [currentAttempt, setCurrentAttempt] = useState(1);
+  const [cameraVerified, setCameraVerified] = useState(false);
 
   useEffect(() => {
     if (assignmentId && profile) {
@@ -355,12 +358,36 @@ const TakeQuiz = () => {
     );
   }
 
+  // Show camera verification if camera is required and not yet verified
+  if (assignment?.camera_required && !cameraVerified) {
+    return (
+      <CameraVerification 
+        onVerified={() => setCameraVerified(true)}
+        required={true}
+      />
+    );
+  }
+
   const currentQuestion = questions[currentIndex];
   const answeredCount = Object.keys(answers).length;
   const progress = (answeredCount / questions.length) * 100;
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Anti-cheat monitor */}
+      {submission && (
+        <AntiCheatMonitor
+          submissionId={submission.id}
+          cameraRequired={assignment?.camera_required || false}
+          antiCheatEnabled={assignment?.anti_cheat_enabled || false}
+          onViolation={(type, count) => {
+            if (type === "tab_switch") {
+              setTabSwitchCount(count);
+            }
+          }}
+        />
+      )}
+
       {/* Header */}
       <div className="sticky top-0 z-10 bg-card border-b shadow-sm">
         <div className="container mx-auto px-4 py-3">
