@@ -1,4 +1,4 @@
-import { GraduationCap } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 interface LogoProps {
@@ -8,9 +8,15 @@ interface LogoProps {
 
 export function Logo({ size = 'md', showText = true }: LogoProps) {
   const sizeClasses = {
-    sm: 'h-8 w-8',
-    md: 'h-10 w-10',
-    lg: 'h-12 w-12',
+    sm: 'h-9 w-9',
+    md: 'h-11 w-11',
+    lg: 'h-14 w-14',
+  };
+
+  const iconSize = {
+    sm: 18,
+    md: 22,
+    lg: 28,
   };
 
   const textSizeClasses = {
@@ -20,9 +26,9 @@ export function Logo({ size = 'md', showText = true }: LogoProps) {
   };
 
   return (
-    <Link to="/" className="flex items-center gap-2 group">
-      <div className={`${sizeClasses[size]} bg-gradient-primary rounded-xl flex items-center justify-center shadow-md group-hover:shadow-glow transition-shadow duration-300`}>
-        <GraduationCap className="text-primary-foreground" size={size === 'sm' ? 20 : size === 'md' ? 24 : 28} />
+    <Link to="/" className="flex items-center gap-3 group">
+      <div className={`${sizeClasses[size]} bg-gradient-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20 group-hover:shadow-xl group-hover:shadow-primary/30 transition-all duration-300 group-hover:scale-105`}>
+        <Sparkles className="text-primary-foreground" size={iconSize[size]} />
       </div>
       {showText && (
         <span className={`${textSizeClasses[size]} font-display font-bold text-gradient`}>
