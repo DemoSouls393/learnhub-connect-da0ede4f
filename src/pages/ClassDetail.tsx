@@ -9,7 +9,8 @@ import {
   Settings,
   Copy,
   Bell,
-  Image
+  Calendar,
+  Library
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -23,6 +24,8 @@ import ClassAssignments from '@/components/class/ClassAssignments';
 import ClassMaterials from '@/components/class/ClassMaterials';
 import LiveSessionManager from '@/components/class/LiveSessionManager';
 import ClassSettings from '@/components/class/ClassSettings';
+import ClassSchedule from '@/components/class/ClassSchedule';
+import QuestionBank from '@/components/class/QuestionBank';
 
 interface ClassData {
   id: string;
@@ -184,6 +187,16 @@ export default function ClassDetail() {
                 <Users size={16} />
                 Thành viên
               </TabsTrigger>
+              <TabsTrigger value="schedule" className="gap-2">
+                <Calendar size={16} />
+                Lịch học
+              </TabsTrigger>
+              {isTeacher && (
+                <TabsTrigger value="questions" className="gap-2">
+                  <Library size={16} />
+                  Ngân hàng câu hỏi
+                </TabsTrigger>
+              )}
               {isTeacher && (
                 <TabsTrigger value="settings" className="gap-2">
                   <Settings size={16} />
@@ -229,6 +242,19 @@ export default function ClassDetail() {
                 classCode={classData.class_code}
               />
             </TabsContent>
+
+            <TabsContent value="schedule">
+              <ClassSchedule
+                classId={classData.id}
+                isTeacher={isTeacher}
+              />
+            </TabsContent>
+
+            {isTeacher && (
+              <TabsContent value="questions">
+                <QuestionBank classId={classData.id} />
+              </TabsContent>
+            )}
 
             {isTeacher && (
               <TabsContent value="settings">
