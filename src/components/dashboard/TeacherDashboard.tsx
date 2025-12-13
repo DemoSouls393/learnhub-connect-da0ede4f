@@ -209,12 +209,15 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
         ) : (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {classes.map((cls, index) => (
-              <Card key={cls.id} className="card-interactive group animate-fade-in" style={{ animationDelay: `${index * 50}ms` }}>
+              <Card key={cls.id} className="group animate-fade-in overflow-hidden hover:shadow-lg transition-all duration-300 border-2 hover:border-primary/30" style={{ animationDelay: `${index * 50}ms` }}>
+                {/* Gradient header bar */}
+                <div className="h-2 bg-gradient-primary" />
+                
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <CardTitle className="text-lg group-hover:text-primary transition-colors">
-                        <Link to={`/class/${cls.id}`}>{cls.name}</Link>
+                        {cls.name}
                       </CardTitle>
                       {cls.subject && <CardDescription className="mt-1">{cls.subject}</CardDescription>}
                     </div>
@@ -224,12 +227,12 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => copyClassCode(cls.class_code)}><Copy className="mr-2 h-4 w-4" /> Sao chép mã lớp</DropdownMenuItem>
-                        <DropdownMenuItem asChild><Link to={`/class/${cls.id}`}><BookOpen className="mr-2 h-4 w-4" /> Xem chi tiết</Link></DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
                 </CardHeader>
-                <CardContent>
+                
+                <CardContent className="space-y-4">
                   <div className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Users size={14} />
@@ -237,6 +240,18 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
                     </div>
                     <Badge variant="outline" className="font-mono text-xs badge-primary">{cls.class_code}</Badge>
                   </div>
+                  
+                  {/* Prominent View Class Button */}
+                  <Link to={`/class/${cls.id}`} className="block">
+                    <Button 
+                      variant="default" 
+                      className="w-full group/btn bg-gradient-primary hover:opacity-90 text-white font-medium h-11 shadow-md hover:shadow-lg transition-all duration-300"
+                    >
+                      <BookOpen size={18} className="mr-2" />
+                      Vào lớp học
+                      <ArrowRight size={16} className="ml-auto group-hover/btn:translate-x-1 transition-transform" />
+                    </Button>
+                  </Link>
                 </CardContent>
               </Card>
             ))}

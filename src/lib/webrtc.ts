@@ -304,12 +304,57 @@ export class WebRTCManager {
     this.onPeerDisconnectedCallback?.(peerId);
   }
 
-  // Toggle local video
-  toggleVideo(enabled: boolean) {
-    if (this.localStream) {
-      this.localStream.getVideoTracks().forEach(track => {
-        track.enabled = enabled;
+  // Toggle local video - re-acquire camera if needed
+  async toggleVideo(enabled: boolean): Promise<void> {
+    if (!this.localStream) return;
+
+    const videoTracks = this.localStream.getVideoTracks();
+    
+    if (enabled && videoTracks.length === 0) {
+      // Camera was stopped, need to re-acquire
+      try {
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: "user",
+          },
+        });
+        
+        const newVideoTrack = newStream.getVideoTracks()[0];
+        this.localStream.addTrack(newVideoTrack);
+        
+        // Replace track in all peer connections
+        this.peers.forEach((pc) => {
+          const sender = pc.getSenders().find(s => s.track?.kind === "video");
+          if (sender) {
+            sender.replaceTrack(newVideoTrack);
+          } else {
+            pc.addTrack(newVideoTrack, this.localStream!);
+          }
+        });
+        
+        console.log("[WebRTC] Camera re-acquired successfully");
+      } catch (error) {
+        console.error("[WebRTC] Error re-acquiring camera:", error);
+        throw error;
+      }
+    } else if (!enabled && videoTracks.length > 0) {
+      // Stop and remove video tracks
+      videoTracks.forEach(track => {
+        track.stop();
+        this.localStream?.removeTrack(track);
       });
+      
+      // Notify peers by replacing with null
+      this.peers.forEach((pc) => {
+        const sender = pc.getSenders().find(s => s.track?.kind === "video");
+        if (sender) {
+          sender.replaceTrack(null);
+        }
+      });
+      
+      console.log("[WebRTC] Camera stopped");
     }
   }
 
