@@ -15,6 +15,7 @@ import { useAuth } from '@/lib/auth';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
+import { notifyNewAssignment } from '@/lib/notifications';
 
 interface Assignment {
   id: string;
@@ -176,20 +177,50 @@ export default function ClassAssignments({ classId, isTeacher }: ClassAssignment
   const togglePublish = async (e: React.MouseEvent, assignment: Assignment) => {
     e.stopPropagation();
     try {
+      const willPublish = !assignment.is_published;
+      
       const { error } = await supabase
         .from('assignments')
-        .update({ is_published: !assignment.is_published })
+        .update({ is_published: willPublish })
         .eq('id', assignment.id);
 
       if (error) throw error;
 
       setAssignments(assignments.map(a => 
-        a.id === assignment.id ? { ...a, is_published: !a.is_published } : a
+        a.id === assignment.id ? { ...a, is_published: willPublish } : a
       ));
+
+      // If publishing, notify all students in the class
+      if (willPublish) {
+        // Get class info and students
+        const { data: classData } = await supabase
+          .from('classes')
+          .select('name')
+          .eq('id', classId)
+          .single();
+        
+        const { data: members } = await supabase
+          .from('class_members')
+          .select('student_id')
+          .eq('class_id', classId);
+
+        if (members && classData) {
+          // Send notification to each student
+          for (const member of members) {
+            await notifyNewAssignment(
+              member.student_id,
+              assignment.title,
+              classData.name,
+              classId,
+              assignment.id
+            );
+          }
+        }
+      }
 
       toast({
         title: 'Thành công',
-        description: assignment.is_published ? 'Đã ẩn bài tập' : 'Đã công bố bài tập',
+        description: assignment.is_published ? 'Đã ẩn bài tập' : 'Đã công bố bài tập và thông báo cho học sinh',
       });
     } catch (error: any) {
       toast({

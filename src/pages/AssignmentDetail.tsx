@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -7,12 +7,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Clock, FileText, Users, Plus, Play, CheckCircle } from "lucide-react";
+import { ArrowLeft, Clock, FileText, Users, Plus, Play, CheckCircle, BarChart3, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import QuestionEditor from "@/components/assignment/QuestionEditor";
 import QuestionList from "@/components/assignment/QuestionList";
 import SubmissionList from "@/components/assignment/SubmissionList";
+import GradeStatistics from "@/components/assignment/GradeStatistics";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Assignment = Tables<"assignments">;
@@ -342,6 +343,10 @@ const AssignmentDetail = () => {
             <TabsList>
               <TabsTrigger value="questions">Câu hỏi ({questions.length})</TabsTrigger>
               <TabsTrigger value="submissions">Bài nộp ({submissions.length})</TabsTrigger>
+              <TabsTrigger value="statistics">
+                <BarChart3 className="h-4 w-4 mr-1" />
+                Thống kê
+              </TabsTrigger>
               <TabsTrigger value="settings">Cài đặt</TabsTrigger>
             </TabsList>
 
@@ -386,10 +391,18 @@ const AssignmentDetail = () => {
                     submissions={submissions}
                     totalPoints={assignment.total_points || 100}
                     assignmentId={assignmentId!}
+                    assignmentTitle={assignment.title}
                     onUpdate={fetchAssignmentData}
                   />
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="statistics">
+              <GradeStatistics
+                submissions={submissions}
+                totalPoints={assignment.total_points || 100}
+              />
             </TabsContent>
 
             <TabsContent value="settings">
@@ -540,8 +553,8 @@ const AssignmentDetail = () => {
                       </div>
                     )}
 
-                    {/* Attempt history */}
-                    {mySubmissions.length > 1 && (
+                    {/* Attempt history with review links */}
+                    {mySubmissions.filter(s => s.status === "submitted" || s.status === "graded").length > 0 && (
                       <div className="space-y-2">
                         <p className="text-sm font-medium">Lịch sử làm bài</p>
                         <div className="space-y-2">
@@ -567,6 +580,14 @@ const AssignmentDetail = () => {
                                     </Badge>
                                   ) : (
                                     <Badge variant="secondary">Chờ chấm</Badge>
+                                  )}
+                                  {sub.status === "graded" && (
+                                    <Button variant="ghost" size="sm" asChild>
+                                      <Link to={`/class/${classId}/assignment/${assignmentId}/review/${sub.id}`}>
+                                        <Eye className="h-4 w-4 mr-1" />
+                                        Xem lại
+                                      </Link>
+                                    </Button>
                                   )}
                                 </div>
                               </div>

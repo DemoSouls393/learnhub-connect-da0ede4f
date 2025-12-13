@@ -5,8 +5,9 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
-import { Eye, CheckCircle, Clock, AlertCircle, FileText } from "lucide-react";
+import { Eye, CheckCircle, Clock, AlertCircle, FileText, Download } from "lucide-react";
 import SubmissionGradingDialog from "./SubmissionGradingDialog";
+import { exportGradesToExcel } from "@/lib/exportExcel";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Question = Tables<"questions">;
@@ -30,10 +31,11 @@ interface SubmissionListProps {
   submissions: Submission[];
   totalPoints: number;
   assignmentId: string;
+  assignmentTitle: string;
   onUpdate: () => void;
 }
 
-const SubmissionList = ({ submissions, totalPoints, assignmentId, onUpdate }: SubmissionListProps) => {
+const SubmissionList = ({ submissions, totalPoints, assignmentId, assignmentTitle, onUpdate }: SubmissionListProps) => {
   const { toast } = useToast();
   const [gradingSubmission, setGradingSubmission] = useState<Submission | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -104,15 +106,32 @@ const SubmissionList = ({ submissions, totalPoints, assignmentId, onUpdate }: Su
     );
   }
 
+  const handleExportExcel = () => {
+    exportGradesToExcel({
+      submissions,
+      assignmentTitle,
+      totalPoints,
+    });
+  };
+
   return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-5 gap-4 p-3 bg-muted rounded-lg font-medium text-sm">
-        <span>Học sinh</span>
-        <span>Trạng thái</span>
-        <span>Thời gian nộp</span>
-        <span>Điểm</span>
-        <span>Hành động</span>
+    <div className="space-y-4">
+      {/* Export button */}
+      <div className="flex justify-end">
+        <Button variant="outline" onClick={handleExportExcel}>
+          <Download className="h-4 w-4 mr-2" />
+          Xuất Excel
+        </Button>
       </div>
+
+      <div className="space-y-2">
+        <div className="grid grid-cols-5 gap-4 p-3 bg-muted rounded-lg font-medium text-sm">
+          <span>Học sinh</span>
+          <span>Trạng thái</span>
+          <span>Thời gian nộp</span>
+          <span>Điểm</span>
+          <span>Hành động</span>
+        </div>
 
       {submissions.map((submission) => (
         <div
@@ -168,6 +187,7 @@ const SubmissionList = ({ submissions, totalPoints, assignmentId, onUpdate }: Su
           }}
         />
       )}
+      </div>
     </div>
   );
 };
