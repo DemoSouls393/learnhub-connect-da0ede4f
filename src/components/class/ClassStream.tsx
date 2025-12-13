@@ -23,6 +23,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { notifyNewAnnouncement } from '@/lib/notifications';
 
 interface Announcement {
   id: string;
@@ -125,23 +126,48 @@ export default function ClassStream({ classId, isTeacher, profileId }: ClassStre
 
     setIsPosting(true);
     try {
+      const announcementTitle = newTitle.trim() || 'Thông báo';
+      
       const { error } = await supabase
         .from('announcements')
         .insert({
           class_id: classId,
           author_id: profileId,
-          title: newTitle.trim() || 'Thông báo',
+          title: announcementTitle,
           content: newContent.trim(),
         });
 
       if (error) throw error;
+
+      // Get class info and notify all students
+      const { data: classData } = await supabase
+        .from('classes')
+        .select('name')
+        .eq('id', classId)
+        .single();
+
+      const { data: members } = await supabase
+        .from('class_members')
+        .select('student_id')
+        .eq('class_id', classId);
+
+      if (members && classData) {
+        for (const member of members) {
+          await notifyNewAnnouncement(
+            member.student_id,
+            announcementTitle,
+            classData.name,
+            classId
+          );
+        }
+      }
 
       setNewTitle('');
       setNewContent('');
       setShowComposer(false);
       toast({
         title: 'Thành công',
-        description: 'Thông báo đã được đăng',
+        description: 'Thông báo đã được đăng và gửi đến học sinh',
       });
     } catch (error: any) {
       toast({
