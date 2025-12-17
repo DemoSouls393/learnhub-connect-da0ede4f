@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
+import { materialSchema, validateFile, getValidationErrors } from '@/lib/validation';
 
 interface Material {
   id: string;
@@ -103,10 +104,11 @@ export default function ClassMaterials({ classId, isTeacher }: ClassMaterialsPro
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 50 * 1024 * 1024) {
+      const validation = validateFile(file);
+      if (!validation.valid) {
         toast({
           title: 'Lỗi',
-          description: 'File quá lớn. Kích thước tối đa là 50MB',
+          description: validation.error,
           variant: 'destructive',
         });
         return;
@@ -119,10 +121,16 @@ export default function ClassMaterials({ classId, isTeacher }: ClassMaterialsPro
   };
 
   const handleCreate = async () => {
-    if (!newMaterial.title.trim()) {
+    // Validate input
+    const validationError = getValidationErrors(materialSchema, {
+      title: newMaterial.title,
+      description: newMaterial.description || null,
+    });
+    
+    if (validationError) {
       toast({
         title: 'Lỗi',
-        description: 'Vui lòng nhập tiêu đề tài liệu',
+        description: validationError,
         variant: 'destructive',
       });
       return;
@@ -132,7 +140,7 @@ export default function ClassMaterials({ classId, isTeacher }: ClassMaterialsPro
     setUploadProgress(0);
 
     try {
-      let fileUrl = null;
+      let filePath = null;
       let fileType = null;
 
       if (selectedFile) {
@@ -149,24 +157,20 @@ export default function ClassMaterials({ classId, isTeacher }: ClassMaterialsPro
 
         if (uploadError) throw uploadError;
 
-        // Get public URL
-        const { data: urlData } = supabase.storage
-          .from('materials')
-          .getPublicUrl(fileName);
-
-        fileUrl = urlData.publicUrl;
+        // Store the path only, not public URL (for signed URL generation later)
+        filePath = fileName;
         fileType = selectedFile.type;
         setUploadProgress(100);
       }
 
-      // Insert material record
+      // Insert material record with file path (not public URL)
       const { error } = await supabase
         .from('materials')
         .insert({
           class_id: classId,
-          title: newMaterial.title,
-          description: newMaterial.description || null,
-          file_url: fileUrl,
+          title: newMaterial.title.trim(),
+          description: newMaterial.description?.trim() || null,
+          file_url: filePath,
           file_type: fileType,
         });
 
@@ -379,10 +383,27 @@ export default function ClassMaterials({ classId, isTeacher }: ClassMaterialsPro
                     </div>
                     <div className="flex items-center gap-2">
                       {material.file_url && (
-                        <Button variant="ghost" size="icon" asChild>
-                          <a href={material.file_url} target="_blank" rel="noopener noreferrer" download>
-                            <Download size={18} />
-                          </a>
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={async () => {
+                            // Generate signed URL for secure download
+                            const { data, error } = await supabase.storage
+                              .from('materials')
+                              .createSignedUrl(material.file_url!, 3600); // 1 hour expiry
+                            
+                            if (data?.signedUrl) {
+                              window.open(data.signedUrl, '_blank');
+                            } else {
+                              toast({
+                                title: 'Lỗi',
+                                description: 'Không thể tải xuống tài liệu',
+                                variant: 'destructive',
+                              });
+                            }
+                          }}
+                        >
+                          <Download size={18} />
                         </Button>
                       )}
                       {isTeacher && (

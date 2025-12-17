@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Link, useNavigate } from 'react-router-dom';
+import { classCodeSchema } from '@/lib/validation';
 
 interface Profile { 
   id: string; 
@@ -117,10 +118,15 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
   };
 
   const handleJoinClass = async () => {
-    if (!classCode.trim()) { 
-      toast({ title: 'Lỗi', description: 'Vui lòng nhập mã lớp học', variant: 'destructive' }); 
+    const trimmedCode = classCode.trim().toUpperCase();
+    
+    // Validate class code format
+    const validation = classCodeSchema.safeParse(trimmedCode);
+    if (!validation.success) { 
+      toast({ title: 'Lỗi', description: validation.error.issues[0]?.message || 'Mã lớp không hợp lệ', variant: 'destructive' }); 
       return; 
     }
+    
     setIsJoining(true);
     try {
       const { data: classData } = await supabase

@@ -16,6 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { classSchema, getValidationErrors } from '@/lib/validation';
 
 interface Profile {
   id: string;
@@ -90,8 +91,15 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
   };
 
   const handleCreateClass = async () => {
-    if (!newClass.name.trim()) {
-      toast({ title: 'Lỗi', description: 'Vui lòng nhập tên lớp học', variant: 'destructive' });
+    // Validate input
+    const validationError = getValidationErrors(classSchema, {
+      name: newClass.name,
+      description: newClass.description || null,
+      subject: newClass.subject || null,
+    });
+    
+    if (validationError) {
+      toast({ title: 'Lỗi', description: validationError, variant: 'destructive' });
       return;
     }
     setIsCreating(true);
