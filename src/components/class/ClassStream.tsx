@@ -24,6 +24,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { notifyNewAnnouncement } from '@/lib/notifications';
+import { announcementSchema, getValidationErrors } from '@/lib/validation';
 
 interface Announcement {
   id: string;
@@ -115,10 +116,16 @@ export default function ClassStream({ classId, isTeacher, profileId }: ClassStre
   };
 
   const handlePost = async () => {
-    if (!newContent.trim()) {
+    // Validate input
+    const validationError = getValidationErrors(announcementSchema, {
+      title: newTitle || undefined,
+      content: newContent,
+    });
+    
+    if (validationError) {
       toast({
         title: 'Lỗi',
-        description: 'Vui lòng nhập nội dung thông báo',
+        description: validationError,
         variant: 'destructive',
       });
       return;
@@ -233,7 +240,22 @@ export default function ClassStream({ classId, isTeacher, profileId }: ClassStre
   };
 
   const handleSaveEdit = async () => {
-    if (!editingAnnouncement || !editContent.trim()) return;
+    if (!editingAnnouncement) return;
+    
+    // Validate input
+    const validationError = getValidationErrors(announcementSchema, {
+      title: editTitle || undefined,
+      content: editContent,
+    });
+    
+    if (validationError) {
+      toast({
+        title: 'Lỗi',
+        description: validationError,
+        variant: 'destructive',
+      });
+      return;
+    }
 
     try {
       const { error } = await supabase

@@ -13,6 +13,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
 import { vi } from "date-fns/locale";
+import { useNavigate } from "react-router-dom";
+import { isInternalLink, sanitizeInternalPath } from "@/lib/validation";
 
 interface Notification {
   id: string;
@@ -27,6 +29,7 @@ interface Notification {
 export function NotificationBell() {
   const { profile } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
@@ -170,7 +173,19 @@ export function NotificationBell() {
                       markAsRead(notification.id);
                     }
                     if (notification.link) {
-                      window.location.href = notification.link;
+                      // Security: Only allow internal links
+                      if (isInternalLink(notification.link)) {
+                        const safePath = sanitizeInternalPath(notification.link);
+                        navigate(safePath);
+                      } else {
+                        // Log suspicious external link attempt
+                        console.warn('Blocked external redirect attempt:', notification.link);
+                        toast({
+                          title: 'Cảnh báo',
+                          description: 'Không thể mở liên kết này vì lý do bảo mật',
+                          variant: 'destructive',
+                        });
+                      }
                       setOpen(false);
                     }
                   }}
