@@ -29,6 +29,7 @@ export class WebRTCManager {
   private screenStream: MediaStream | null = null;
   private peers: Map<string, RTCPeerConnection> = new Map();
   private remoteStreams: Map<string, MediaStream> = new Map();
+  private peerSenders: Map<string, { video?: RTCRtpSender; audio?: RTCRtpSender }> = new Map();
   private sessionId: string;
   private myPeerId: string;
   private channel: ReturnType<typeof supabase.channel> | null = null;
