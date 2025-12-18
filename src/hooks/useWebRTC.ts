@@ -86,14 +86,19 @@ export const useWebRTC = ({ sessionId, myPeerId, autoConnect = false }: UseWebRT
     if (webrtcRef.current) {
       const newState = !isVideoEnabled;
       try {
-        await webrtcRef.current.toggleVideo(newState);
+        const updatedStream = await webrtcRef.current.toggleVideo(newState);
         setIsVideoEnabled(newState);
         
-        // Update local stream reference if video was re-acquired
-        if (newState) {
-          const stream = webrtcRef.current.getLocalStream();
-          setLocalStream(stream);
+        // Force update local stream reference to trigger re-render
+        if (updatedStream) {
+          // Create a new MediaStream reference to force React to detect the change
+          const newStreamRef = new MediaStream(updatedStream.getTracks());
+          setLocalStream(newStreamRef);
+        } else {
+          setLocalStream(null);
         }
+        
+        console.log("[useWebRTC] Video toggled:", newState);
       } catch (error) {
         console.error("[useWebRTC] Toggle video error:", error);
       }
