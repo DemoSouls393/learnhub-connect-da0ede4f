@@ -36,12 +36,19 @@ const VideoTile = ({
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+    const video = videoRef.current;
+    if (video) {
+      if (stream && stream.getVideoTracks().length > 0) {
+        video.srcObject = stream;
+        // Force play the video
+        video.play().catch(err => console.log("Video play error:", err));
+      } else {
+        video.srcObject = null;
+      }
     }
   }, [stream]);
 
-  const showVideo = stream && !isVideoOff;
+  const showVideo = stream && stream.getVideoTracks().length > 0 && !isVideoOff;
 
   return (
     <div

@@ -305,13 +305,9 @@ export class WebRTCManager {
   }
 
   // Toggle local video - re-acquire camera if needed
-  async toggleVideo(enabled: boolean): Promise<void> {
-    if (!this.localStream) return;
-
-    const videoTracks = this.localStream.getVideoTracks();
-    
-    if (enabled && videoTracks.length === 0) {
-      // Camera was stopped, need to re-acquire
+  async toggleVideo(enabled: boolean): Promise<MediaStream | null> {
+    if (enabled) {
+      // Re-acquire camera
       try {
         const newStream = await navigator.mediaDevices.getUserMedia({
           video: {
@@ -322,39 +318,56 @@ export class WebRTCManager {
         });
         
         const newVideoTrack = newStream.getVideoTracks()[0];
-        this.localStream.addTrack(newVideoTrack);
+        
+        // If we have an existing local stream, add the new track to it
+        if (this.localStream) {
+          // First, remove any existing video tracks
+          this.localStream.getVideoTracks().forEach(track => {
+            track.stop();
+            this.localStream?.removeTrack(track);
+          });
+          // Add the new video track
+          this.localStream.addTrack(newVideoTrack);
+        } else {
+          // Create a new stream with the video track
+          this.localStream = newStream;
+        }
         
         // Replace track in all peer connections
         this.peers.forEach((pc) => {
           const sender = pc.getSenders().find(s => s.track?.kind === "video");
           if (sender) {
             sender.replaceTrack(newVideoTrack);
-          } else {
-            pc.addTrack(newVideoTrack, this.localStream!);
+          } else if (this.localStream) {
+            pc.addTrack(newVideoTrack, this.localStream);
           }
         });
         
         console.log("[WebRTC] Camera re-acquired successfully");
+        return this.localStream;
       } catch (error) {
         console.error("[WebRTC] Error re-acquiring camera:", error);
         throw error;
       }
-    } else if (!enabled && videoTracks.length > 0) {
+    } else {
       // Stop and remove video tracks
-      videoTracks.forEach(track => {
-        track.stop();
-        this.localStream?.removeTrack(track);
-      });
-      
-      // Notify peers by replacing with null
-      this.peers.forEach((pc) => {
-        const sender = pc.getSenders().find(s => s.track?.kind === "video");
-        if (sender) {
-          sender.replaceTrack(null);
-        }
-      });
-      
-      console.log("[WebRTC] Camera stopped");
+      if (this.localStream) {
+        this.localStream.getVideoTracks().forEach(track => {
+          track.stop();
+          this.localStream?.removeTrack(track);
+        });
+        
+        // Notify peers by replacing with null
+        this.peers.forEach((pc) => {
+          const sender = pc.getSenders().find(s => s.track?.kind === "video");
+          if (sender) {
+            sender.replaceTrack(null);
+          }
+        });
+        
+        console.log("[WebRTC] Camera stopped");
+      }
+      return this.localStream;
     }
   }
 

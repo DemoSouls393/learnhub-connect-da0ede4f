@@ -404,13 +404,16 @@ const LiveSessionPage = () => {
 
             {/* Preview video */}
             <div className="aspect-video bg-zinc-800 rounded-xl overflow-hidden relative">
-              {localStream ? (
+              {localStream && localStream.getVideoTracks().length > 0 ? (
                 <video
                   autoPlay
                   muted
                   playsInline
                   ref={(el) => {
-                    if (el) el.srcObject = localStream;
+                    if (el && localStream) {
+                      el.srcObject = localStream;
+                      el.play().catch(() => {});
+                    }
                   }}
                   className="w-full h-full object-cover transform scale-x-[-1]"
                 />
