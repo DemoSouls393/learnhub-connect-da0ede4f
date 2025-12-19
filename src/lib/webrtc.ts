@@ -123,9 +123,12 @@ export class WebRTCManager {
 
       // Replace video track in all peer connections
       const videoTrack = this.screenStream.getVideoTracks()[0];
-      this.peers.forEach((pc) => {
-        const sender = pc.getSenders().find(s => s.track?.kind === "video");
+      this.peers.forEach((pc, peerId) => {
+        const cached = this.peerSenders.get(peerId)?.video;
+        const sender = cached ?? pc.getSenders().find((s) => s.track?.kind === "video");
         if (sender) {
+          const prev = this.peerSenders.get(peerId) ?? {};
+          this.peerSenders.set(peerId, { ...prev, video: sender });
           sender.replaceTrack(videoTrack);
         }
       });
@@ -152,9 +155,12 @@ export class WebRTCManager {
       if (this.localStream) {
         const videoTrack = this.localStream.getVideoTracks()[0];
         if (videoTrack) {
-          this.peers.forEach((pc) => {
-            const sender = pc.getSenders().find(s => s.track?.kind === "video");
+          this.peers.forEach((pc, peerId) => {
+            const cached = this.peerSenders.get(peerId)?.video;
+            const sender = cached ?? pc.getSenders().find((s) => s.track?.kind === "video");
             if (sender) {
+              const prev = this.peerSenders.get(peerId) ?? {};
+              this.peerSenders.set(peerId, { ...prev, video: sender });
               sender.replaceTrack(videoTrack);
             }
           });
@@ -165,16 +171,25 @@ export class WebRTCManager {
 
   // Create peer connection
   private createPeerConnection(peerId: string): RTCPeerConnection {
+    const existing = this.peers.get(peerId);
+    if (existing) return existing;
+
     console.log("[WebRTC] Creating peer connection for:", peerId);
-    
+
     const pc = new RTCPeerConnection(ICE_SERVERS);
 
-    // Add local tracks
+    const senders: { video?: RTCRtpSender; audio?: RTCRtpSender } = {};
+
+    // Add local tracks (if available) and store senders so we can replaceTrack later even when sender.track is null
     if (this.localStream) {
-      this.localStream.getTracks().forEach(track => {
-        pc.addTrack(track, this.localStream!);
+      this.localStream.getTracks().forEach((track) => {
+        const sender = pc.addTrack(track, this.localStream!);
+        if (track.kind === "video") senders.video = sender;
+        if (track.kind === "audio") senders.audio = sender;
       });
     }
+
+    this.peerSenders.set(peerId, senders);
 
     // Handle ICE candidates
     pc.onicecandidate = async (event) => {
@@ -210,10 +225,36 @@ export class WebRTCManager {
     return pc;
   }
 
+  private async renegotiate(peerId: string, pc: RTCPeerConnection) {
+    try {
+      // Avoid fighting glare / ongoing negotiation
+      if (pc.signalingState !== "stable") {
+        console.log(
+          `[WebRTC] Skip renegotiate with ${peerId} (signalingState=${pc.signalingState})`
+        );
+        return;
+      }
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      await this.sendSignalingMessage({
+        type: "offer",
+        from: this.myPeerId,
+        to: peerId,
+        data: offer,
+      });
+
+      console.log(`[WebRTC] Renegotiation offer sent to ${peerId}`);
+    } catch (error) {
+      console.error(`[WebRTC] Renegotiation error with ${peerId}:`, error);
+    }
+  }
+
   // Create and send offer
   private async createOffer(peerId: string) {
-    const pc = this.createPeerConnection(peerId);
-    
+    const pc = this.peers.get(peerId) ?? this.createPeerConnection(peerId);
+
     try {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -247,8 +288,8 @@ export class WebRTCManager {
   }
 
   private async handleOffer(peerId: string, offer: RTCSessionDescriptionInit) {
-    const pc = this.createPeerConnection(peerId);
-    
+    const pc = this.peers.get(peerId) ?? this.createPeerConnection(peerId);
+
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await pc.createAnswer();
@@ -301,6 +342,7 @@ export class WebRTCManager {
       pc.close();
       this.peers.delete(peerId);
     }
+    this.peerSenders.delete(peerId);
     this.remoteStreams.delete(peerId);
     this.onPeerDisconnectedCallback?.(peerId);
   }
@@ -317,59 +359,87 @@ export class WebRTCManager {
             facingMode: "user",
           },
         });
-        
+
         const newVideoTrack = newStream.getVideoTracks()[0];
-        
-        // If we have an existing local stream, add the new track to it
+        if (!newVideoTrack) return this.localStream;
+
+        // If we have an existing local stream, swap the video track inside it
         if (this.localStream) {
-          // First, remove any existing video tracks
-          this.localStream.getVideoTracks().forEach(track => {
+          this.localStream.getVideoTracks().forEach((track) => {
             track.stop();
             this.localStream?.removeTrack(track);
           });
-          // Add the new video track
           this.localStream.addTrack(newVideoTrack);
         } else {
-          // Create a new stream with the video track
-          this.localStream = newStream;
+          // Keep localStream stable as a container we can keep mutating
+          this.localStream = new MediaStream([newVideoTrack]);
         }
-        
-        // Replace track in all peer connections
-        this.peers.forEach((pc) => {
-          const sender = pc.getSenders().find(s => s.track?.kind === "video");
-          if (sender) {
-            sender.replaceTrack(newVideoTrack);
-          } else if (this.localStream) {
-            pc.addTrack(newVideoTrack, this.localStream);
-          }
-        });
-        
+
+        // Replace track in all peer connections (use cached sender even when sender.track is null)
+        await Promise.all(
+          Array.from(this.peers.entries()).map(async ([peerId, pc]) => {
+            const cached = this.peerSenders.get(peerId)?.video;
+            const sender = cached ?? pc.getSenders().find((s) => s.track?.kind === "video");
+
+            if (sender) {
+              const prev = this.peerSenders.get(peerId) ?? {};
+              this.peerSenders.set(peerId, { ...prev, video: sender });
+
+              try {
+                await sender.replaceTrack(newVideoTrack);
+              } catch (error) {
+                console.error(`[WebRTC] replaceTrack(video) failed for ${peerId}:`, error);
+              }
+              return;
+            }
+
+            // Fallback: peer was created while video was off -> addTrack and renegotiate
+            if (!this.localStream) return;
+            const newSender = pc.addTrack(newVideoTrack, this.localStream);
+            const prev = this.peerSenders.get(peerId) ?? {};
+            this.peerSenders.set(peerId, { ...prev, video: newSender });
+            await this.renegotiate(peerId, pc);
+          })
+        );
+
         console.log("[WebRTC] Camera re-acquired successfully");
         return this.localStream;
       } catch (error) {
         console.error("[WebRTC] Error re-acquiring camera:", error);
         throw error;
       }
-    } else {
-      // Stop and remove video tracks
-      if (this.localStream) {
-        this.localStream.getVideoTracks().forEach(track => {
-          track.stop();
-          this.localStream?.removeTrack(track);
-        });
-        
-        // Notify peers by replacing with null
-        this.peers.forEach((pc) => {
-          const sender = pc.getSenders().find(s => s.track?.kind === "video");
-          if (sender) {
-            sender.replaceTrack(null);
-          }
-        });
-        
-        console.log("[WebRTC] Camera stopped");
-      }
-      return this.localStream;
     }
+
+    // Disable camera
+    if (this.localStream) {
+      // Notify peers first (keep sender reference even after null)
+      await Promise.all(
+        Array.from(this.peers.entries()).map(async ([peerId, pc]) => {
+          const cached = this.peerSenders.get(peerId)?.video;
+          const sender = cached ?? pc.getSenders().find((s) => s.track?.kind === "video");
+          if (!sender) return;
+
+          const prev = this.peerSenders.get(peerId) ?? {};
+          this.peerSenders.set(peerId, { ...prev, video: sender });
+
+          try {
+            await sender.replaceTrack(null);
+          } catch (error) {
+            console.error(`[WebRTC] replaceTrack(null) failed for ${peerId}:`, error);
+          }
+        })
+      );
+
+      // Stop and remove local camera tracks
+      this.localStream.getVideoTracks().forEach((track) => {
+        track.stop();
+        this.localStream?.removeTrack(track);
+      });
+
+      console.log("[WebRTC] Camera stopped");
+    }
+
+    return this.localStream;
   }
 
   // Toggle local audio
@@ -421,6 +491,7 @@ export class WebRTCManager {
     // Close all peer connections
     this.peers.forEach((pc) => pc.close());
     this.peers.clear();
+    this.peerSenders.clear();
     this.remoteStreams.clear();
 
     // Stop local stream
